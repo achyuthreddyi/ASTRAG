@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -22,7 +22,7 @@ Conversely, treating temporal metadata as merely decorative would fail ASTRAG's 
 
 ## Decision
 
-ASTRAG uses a **structured, uncertainty-preserving temporal query and retrieval policy** in which temporal intent may drive candidate generation and ranking, but is not a hard filter by default.
+ASTRAG uses a **structured, uncertainty-preserving temporal query and retrieval policy** in which temporal intent may drive candidate generation and ranking, but is not a hard cross-route filter by default.
 
 ### Structured multi-intent temporal input
 
@@ -58,19 +58,15 @@ Stage 3 supports at least:
 
 Relative expressions based on the user's current date, such as `100 years ago today`, are resolved upstream before retrieval.
 
-### Hard versus soft temporal semantics
+### Temporal route predicates versus global candidate exclusion
 
-Temporal constraints do not automatically become hard eligibility filters.
+The dedicated temporal candidate route may use strict temporal predicates to generate candidates matching the structured temporal intent. Those route-local predicates do **not** automatically become global evidence-eligibility rules for dense/lexical candidates.
 
-Hard filters are reserved primarily for evidence correctness boundaries such as selected corpus, active publication, active generations, and deletion state.
+Dense/lexical candidates remain eligible when temporal metadata is absent, has zero mentions, is degraded, or is semantically useful but does not itself contain a safely normalized matching mention.
 
-A temporal intent may become a hard query-semantic constraint only when the resolved query semantics clearly justify exclusion. Otherwise temporal information is used to:
+Cross-route hard temporal exclusion is permitted only when an explicit typed query constraint has semantics that genuinely require exclusion, for example a request explicitly constrained to source/publication metadata time. Such constraints must be represented explicitly in the structured request, traced, and evaluated independently from ordinary temporal question interpretation.
 
-- generate temporal candidates,
-- boost/rerank semantically relevant candidates,
-- expose explainable temporal match information downstream.
-
-For temporal range/timeline queries, dense/lexical candidates without temporal metadata may remain in the candidate pool.
+This distinction prevents an exact-date or range question from accidentally converting optional temporal enrichment into mandatory evidence eligibility.
 
 ### Dedicated temporal candidate route
 
@@ -102,7 +98,7 @@ These preferences affect ranking, not evidence eligibility.
 
 Approximate historical expressions use interval overlap/proximity and precision/certainty compatibility rather than binary exact matching.
 
-Examples such as `circa 1200 BCE` must not be silently treated as exact dates.
+Examples such as `circa 1200 BCE` or `early 5th century` must not be silently treated as exact dates.
 
 Normalized search bounds are search aids only; the original expression, precision, and certainty remain authoritative interpretation metadata.
 
@@ -112,7 +108,7 @@ Stage 2 TemporalMentions that cannot be safely normalized, such as an unresolved
 
 Their source text remains available through dense/lexical retrieval.
 
-If the query itself contains an unresolved temporal anchor, Stage 3 degrades to semantic/lexical retrieval when meaningful. If the unresolved anchor makes the query semantically unusable, retrieval may fail rather than inventing an anchor.
+If the query itself contains an unresolved temporal anchor, Stage 3 degrades to semantic/lexical retrieval when meaningful. If the unresolved anchor makes the query semantically unusable, retrieval may fail rather than inventing an anchor. Stage 4 may resolve the anchor through a separate evidence-seeking step and issue a new explicit retrieval request.
 
 ### Temporal capability degradation
 
@@ -149,6 +145,7 @@ Strong temporal profiles may additionally apply a bounded deterministic post-RRF
 
 - Temporal retrieval becomes a real retrieval capability rather than metadata decoration.
 - Missing/degraded temporal metadata does not automatically destroy semantic recall.
+- Temporal-route precision can be strict without turning optional metadata into a global eligibility gate.
 - Approximate and uncertain historical evidence remains faithful to source precision.
 - Multiple dates per chunk remain independently matchable and explainable.
 - Source/publication dates cannot silently masquerade as event dates.
@@ -158,7 +155,8 @@ Strong temporal profiles may additionally apply a bounded deterministic post-RRF
 ### Negative
 
 - Temporal query and ranking logic is more complex than one date filter.
-- Soft temporal behavior may retain semantically relevant but temporally weak candidates, requiring good ranking/evaluation.
+- Soft cross-route behavior may retain semantically relevant but temporally weak candidates, requiring good ranking/evaluation.
+- Explicit metadata constraints require careful distinction from ordinary temporal intents.
 - Configurable temporal-role preferences and bounded post-fusion adjustment require tuning.
 - Some relative/ambiguous expressions remain unresolved and cannot receive structured temporal matching.
 
@@ -167,6 +165,10 @@ Strong temporal profiles may additionally apply a bounded deterministic post-RRF
 ### Hard temporal filtering for every temporal query
 
 Rejected because it can remove relevant evidence when temporal extraction is degraded/missing or when relevant prose does not explicitly contain the target date.
+
+### Temporal route-local predicates plus dense/lexical recall
+
+Accepted because it allows precise temporal candidate generation while preserving semantic/lexical evidence that lacks safe temporal metadata.
 
 ### Temporal metadata only as a post-retrieval boost
 
@@ -188,7 +190,7 @@ Rejected because unresolved source wording remains valid evidence for semantic/l
 
 Revisit this ADR if:
 
-- temporal evaluation demonstrates that more hard filtering is safe and materially improves precision,
+- temporal evaluation demonstrates that more hard cross-route filtering is safe and materially improves precision,
 - richer event-relation extraction becomes available,
 - historical calendar conversion enters scope,
 - multilingual temporal support enters scope,
