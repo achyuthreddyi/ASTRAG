@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 340" width="920" height="340" role="img" aria-label="ASTRAG — Agentic Semantic Temporal RAG. Reason over meaning. Reason over time. What happened on this date? What came before it? What followed?">
+  <rect width="920" height="340" fill="#0d1117"/>
+
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="460" y="130" font-size="96" font-weight="700" letter-spacing="-2">
+      <tspan fill="#3f8f6f">ast</tspan><tspan fill="#c9d1d9">rag</tspan>
+    </text>
+
+    <text x="460" y="168" font-size="15" font-weight="500" letter-spacing="7.5" fill="#8b949e">
+      AGENTIC SEMANTIC TEMPORAL RAG
+    </text>
+
+    <text x="460" y="240" font-size="19" font-weight="700" fill="#e6edf3">
+      Reason over meaning. <tspan fill="#e3b341">Reason over time.</tspan>
+    </text>
+
+    <text x="460" y="282" font-size="17" font-weight="500" fill="#8b949e">
+      <tspan fill="#c9d1d9">What happened on this date?</tspan> What came before it? What followed?
+    </text>
+
+    <line x1="60" y1="320" x2="860" y2="320" stroke="#30363d" stroke-width="2"/>
+  </g>
+</svg>
