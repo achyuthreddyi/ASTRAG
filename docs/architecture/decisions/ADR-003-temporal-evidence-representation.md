@@ -2,38 +2,54 @@
 
 ## Status
 
-Proposed — requires orchestrator approval.
+Accepted
 
 ## Context
 
 ASTRAG is primarily optimized for historical and temporal QA. The global architecture requires temporal metadata and temporal uncertainty to remain first-class across ingestion, retrieval, context assembly, generation, and evaluation.
 
-A single date field per chunk cannot represent multiple dates, ranges, approximate historical periods, BCE/CE, relative expressions, uncertainty, or different semantic roles.
+A single date field per chunk cannot represent multiple dates, ranges, approximate historical periods, BCE/CE, relative expressions, uncertainty, source/document dates, or different semantic roles.
 
 ## Decision
 
-Stage 2 models temporal evidence as zero or more structured `TemporalMention` records associated with normalized source spans and then with chunks.
+Stage 2 models temporal evidence as zero or more structured `TemporalMention` records associated with normalized source spans and then with chunks where applicable.
 
 Each temporal mention preserves both the source expression and normalized structure where safe.
 
 Conceptual fields include:
 
 - original text,
+- temporal origin/scope,
 - semantic role,
 - normalized start,
 - normalized end,
 - precision,
 - certainty,
 - era/calendar semantics,
-- source block/span lineage.
+- source block/span lineage where applicable.
 
-### Multiple mentions
+### Temporal origin: source/document time versus content time
 
-A chunk may contain multiple TemporalMentions. Document-level dates and dates mentioned in content remain distinguishable.
+ASTRAG must explicitly distinguish **source/document metadata time** from **time mentioned in document content**. This distinction is persisted rather than inferred later from nullable fields.
+
+At minimum, a temporal record identifies an origin conceptually equivalent to:
+
+- `SOURCE_METADATA` — a date attributable to the document/source itself, such as creation, publication, issue, or other source metadata time;
+- `CONTENT_MENTION` — a temporal expression occurring in the document's evidence text.
+
+Source/document time is not automatically event time. A publication date, for example, must not be silently treated as the date of an event described by the document.
 
 ### Semantic role
 
-Stage 2 may assign a conservative semantic role when reliably determinable; `UNKNOWN` is valid and preferable to an invented classification.
+Stage 2 may assign a conservative semantic role when reliably determinable. Roles may distinguish concepts such as event time, publication/source time, or other useful temporal semantics, but `UNKNOWN` is always valid and preferable to an invented classification.
+
+The origin/scope discriminator and semantic role are separate: origin says **where the temporal value came from**; role says **what it appears to mean**.
+
+Stage 3 may use these persisted distinctions for filtering or ranking, but Stage 3 owns query-time temporal interpretation and retrieval policy.
+
+### Multiple mentions
+
+A chunk may contain multiple TemporalMentions. Document-level dates and dates mentioned in content remain independently representable and queryable.
 
 ### Precision
 
@@ -63,6 +79,8 @@ ASTRAG does not invent uncalibrated numeric confidence scores for temporal certa
 Ranges are represented as one temporal mention with normalized start/end bounds when safe.
 
 Approximate expressions retain their original wording and uncertainty. Expressions such as `circa 1200 BCE` or `early 5th century` must not be silently converted into falsely precise exact dates.
+
+Normalized bounds used for search must remain interpretable together with the persisted precision/certainty/original-expression fields; a coarse search bound does not upgrade the source claim to exactness.
 
 ### BCE/CE and calendars
 
@@ -98,6 +116,7 @@ A temporal-extraction subsystem failure may produce `READY_DEGRADED` when semant
 
 - Temporal uncertainty survives ingestion.
 - Multiple dates and ranges remain queryable.
+- Source/document dates cannot silently masquerade as event dates.
 - Historical expressions are not forced into false precision.
 - Stage 3 receives structured temporal fields without Stage 2 owning query-time retrieval policy.
 - Temporal-quality evaluation has an explicit persisted target.
@@ -106,6 +125,7 @@ A temporal-extraction subsystem failure may produce `READY_DEGRADED` when semant
 
 - Temporal schema and validation are more complex than a single date field.
 - Relative expressions may remain unresolved.
+- Conservative semantic-role assignment means some useful relations remain `UNKNOWN` until later reasoning.
 - Extraction quality becomes an important Stage 2 evaluation surface.
 
 ## Alternatives Considered
@@ -117,6 +137,10 @@ Rejected because it loses multiple events, ranges, document-vs-event distinction
 ### Raw temporal text only
 
 Rejected because Stage 3 would lack structured fields for reliable temporal filtering and ordering.
+
+### Infer document-time versus event-time only at retrieval
+
+Rejected because origin is durable evidence metadata and should not be reconstructed heuristically for every query.
 
 ### Fully LLM-derived temporal normalization
 
