@@ -2,9 +2,9 @@
 
 ## Status
 
-**Architecture Ready — awaiting orchestrator review and acceptance of proposed ADRs.**
+**Implementation Ready.**
 
-Implementation must not begin until orchestrator-impacting decisions are accepted and the global architecture is updated accordingly.
+Orchestrator review is complete. ADR-002, ADR-003, and ADR-004 are accepted, and the corresponding project-wide invariants are recorded in `docs/architecture/architecture.md`.
 
 ## Objective
 
@@ -93,9 +93,9 @@ Deleting a corpus semantically deletes all owned logical documents, versions, ch
 
 ### Search visibility
 
-Only the active `READY` or explicitly permitted `READY_DEGRADED` version of a logical document is query-visible.
+Only the active `READY` or explicitly permitted `READY_DEGRADED` version of a logical document, under its active ProcessingGeneration and the globally active SearchRepresentationGeneration, is query-visible.
 
-Partially processed or partially indexed versions are never searchable.
+Partially processed or partially indexed versions/generations are never searchable.
 
 ## Assumptions
 
@@ -155,9 +155,11 @@ ProcessingGeneration and SearchRepresentationGeneration are global immutable con
 
 A global preferred ProcessingGeneration controls new processing. Changing it does not automatically reprocess all existing documents.
 
-Active documents may use chunks produced by different ProcessingGenerations.
+Active documents may use chunks produced by different ProcessingGenerations. For a given active DocumentVersion, publication selects exactly one active ProcessingGeneration chunk set.
 
 Active retrieval uses one globally active SearchRepresentationGeneration in V1; incompatible embedding/search generations are not mixed.
+
+An `IngestionRun` identifies one processing attempt and is not a document, processing, or search-representation version.
 
 ### 4. Safe replacement cutover
 
@@ -174,7 +176,9 @@ Stage 3 continues to retrieve v1.
 
 If v2 fails, v1 remains active.
 
-If v2 reaches publishable `READY` or permitted `READY_DEGRADED`, publication validates the full new searchable set and atomically changes the active version.
+If v2 reaches publishable `READY` or permitted `READY_DEGRADED`, publication validates the full new searchable set and atomically changes the active version and active ProcessingGeneration for that version.
+
+Reprocessing the same DocumentVersion under a new ProcessingGeneration follows the same private-build, validate, and atomic-cutover rule without creating a fake source version.
 
 ### 5. Canonical normalized document representation
 
@@ -309,9 +313,12 @@ Stage 2 extracts zero or more `TemporalMention` records against normalized sourc
 
 A chunk may contain multiple temporal mentions.
 
-Document-level dates and text-mentioned dates remain distinguishable.
+Temporal origin is explicit so source/document metadata dates cannot be confused with dates mentioned in document content. V1 distinguishes at least:
 
-A conservative semantic role may be assigned when reliably determinable; `UNKNOWN` is valid.
+- `SOURCE_METADATA`
+- `CONTENT_MENTION`
+
+This origin dimension is separate from semantic role. A conservative semantic role may be assigned when reliably determinable; `UNKNOWN` is valid.
 
 Each mention preserves original wording and normalized values only where safe.
 
@@ -386,9 +393,9 @@ Search indexes are derived/rebuildable state.
 
 Dense embedding vectors and lexical representation artifacts are persisted by SearchRepresentationGeneration so search indexes can be rebuilt without necessarily rerunning parsing/chunking or re-calling embedding providers.
 
-### 17. Proposed V1 persistence architecture
+### 17. V1 persistence architecture
 
-Pending ADR/orchestrator acceptance, Stage 2 proposes:
+Accepted by ADR-004, Stage 2 uses:
 
 - PostgreSQL as authoritative relational storage for corpus/document lifecycle, chunks, provenance, temporal metadata, ingestion state, and search-representation metadata,
 - integrated dense-vector capability such as pgvector,
@@ -397,7 +404,7 @@ Pending ADR/orchestrator acceptance, Stage 2 proposes:
 
 The ArtifactStore may be backed by local filesystem/object storage depending on deployment; ingestion logic depends on the abstraction.
 
-This remains a proposed global architecture change until ADR-004 is accepted.
+This storage boundary is part of the accepted global V1 architecture and remains benchmark/revisit-driven rather than permanent infrastructure dogma.
 
 ### 18. Async sequential ingestion
 
@@ -499,7 +506,7 @@ Before activation, publication validates that:
 - degradations are explicitly recorded when permitted,
 - expected searchable chunk identity/count matches derived index visibility.
 
-Only after validation is the version/generation exposed to Stage 3.
+Only after validation is the specific DocumentVersion + ProcessingGeneration searchable set exposed to Stage 3 under the globally active SearchRepresentationGeneration.
 
 ### 24. Incremental processing and re-indexing
 
@@ -545,7 +552,7 @@ DELETED
 
 Stage 3 must apply a final eligibility check so stale index entries cannot become evidence if derived-index deletion fails or lags.
 
-Historical versions are retained as lineage until deleted by explicit document/corpus deletion or later GC policy, but only the active version is searchable.
+Historical versions are retained as lineage until deleted by explicit document/corpus deletion or later GC policy, but only the active version and active ProcessingGeneration are searchable.
 
 ### 26. Duplicate-content responsibility
 
@@ -621,7 +628,7 @@ Maintains corpus lifecycle and one-corpus-per-document ownership.
 
 ### Document Lifecycle Service
 
-Handles explicit Create Document, Update Document, active-version pointer, source hashing/idempotency, and deletion transitions.
+Handles explicit Create Document, Update Document, active-version/processing-generation publication state, source hashing/idempotency, and deletion transitions.
 
 ### ArtifactStore
 
@@ -641,7 +648,7 @@ Produces structure-aware token-bounded chunks with deterministic identity and so
 
 ### Metadata / Temporal Extractor
 
-Produces structured temporal mentions and enrichment status while preserving source wording/uncertainty.
+Produces structured temporal mentions, temporal origin, and enrichment status while preserving source wording/uncertainty.
 
 ### Representation Generator
 
@@ -691,7 +698,7 @@ process privately
     ↓
 READY / READY_DEGRADED
     ↓
-atomic active-version cutover
+atomic active-version/processing-generation cutover
 ```
 
 ### Re-embedding / search-generation migration
@@ -765,6 +772,7 @@ Stage 3 must enforce:
 
 - selected-corpus filtering,
 - active logical-document/version eligibility,
+- active ProcessingGeneration eligibility for the active DocumentVersion,
 - active SearchRepresentationGeneration eligibility,
 - non-deleted state.
 
@@ -862,6 +870,7 @@ Stage 2 evaluation must measure or validate at least:
 - uncertainty preservation,
 - BCE/CE correctness,
 - relative/unresolved-expression handling,
+- temporal-origin classification correctness,
 - role classification quality,
 - successful-zero-mention versus subsystem-failure distinction.
 
@@ -876,6 +885,7 @@ Stage 2 evaluation must measure or validate at least:
 
 - duplicate-upload idempotency,
 - update/version cutover correctness,
+- processing-generation cutover correctness,
 - previous-version preservation on failed replacement,
 - crash recovery,
 - stale-run recovery,
@@ -909,7 +919,7 @@ V1 targets:
 
 The Stage 2 design favors operational simplicity at this scale while retaining explicit generation boundaries and rebuildable projections so search/storage systems can be specialized later if benchmarks require it.
 
-PostgreSQL vector/full-text behavior at the upper V1 envelope must be benchmarked before treating the storage proposal as permanently sufficient.
+PostgreSQL vector/full-text behavior at the upper V1 envelope must be benchmarked before treating the storage architecture as permanently sufficient.
 
 ## Latency / Throughput Requirements
 
@@ -964,7 +974,7 @@ Deferred. Dense embeddings plus lexical/full-text representation provide complem
 
 ### Dedicated vector database/search engine in V1
 
-Viable, but the proposed initial design uses integrated PostgreSQL capabilities until benchmark evidence requires additional operational systems.
+Viable, but the accepted initial design uses integrated PostgreSQL capabilities until benchmark evidence requires additional operational systems.
 
 ### Synchronous ingestion
 
@@ -988,7 +998,7 @@ Provides evidence-boundary, provenance, temporal, failure, and scale invariants.
 
 Consumes searchable chunk records and owns query-time corpus enforcement, retrieval, lexical/dense/temporal combination, ranking, Top-K, and reranking.
 
-Stage 3 must apply final eligibility checks against active document/version/search generation and deletion state even when an index returns stale records.
+Stage 3 must apply final eligibility checks against active document/version/processing generation/search generation and deletion state even when an index returns stale records.
 
 ### Stage 5
 
@@ -1012,7 +1022,7 @@ May replace the V1 background-executor/storage deployment topology with producti
 
 ## Implementation Plan
 
-Implementation begins only after orchestrator acceptance of required architecture changes.
+Implementation may begin from this accepted Stage 2 architecture.
 
 Suggested implementation order:
 
@@ -1027,7 +1037,7 @@ Suggested implementation order:
 9. dense embedding contract/generation,
 10. lexical representation generation,
 11. search projection/index publishing,
-12. publication validator and active-version cutover,
+12. publication validator and active-version/processing-generation cutover,
 13. deletion/tombstone workflow,
 14. reprocessing/re-indexing paths,
 15. ingestion observability/evaluation tests.
@@ -1036,7 +1046,7 @@ Concrete parser library, embedding model/provider, chunk-size default, retry cou
 
 ## Open Questions
 
-No unresolved Stage 2 question currently blocks architecture consolidation.
+No unresolved Stage 2 question currently blocks implementation.
 
 The following remain implementation/evaluation choices rather than architecture blockers:
 
@@ -1049,29 +1059,29 @@ The following remain implementation/evaluation choices rather than architecture 
 - retention/garbage-collection policy,
 - ingestion throughput targets after measurement.
 
-## Decisions Requiring Orchestrator Approval
+## Orchestrator Decisions
 
 ### ADR-002 — Ingestion Identity, Versioning, and Publication Model
 
-Proposes the accepted Stage 2 lifecycle/generation/publication model as an architecture-wide contract.
+**Accepted.** Establishes the Stage 2 lifecycle/generation/publication model as an architecture-wide contract, including explicit publication of the active DocumentVersion + ProcessingGeneration searchable set.
 
 ### ADR-003 — Temporal Evidence Representation
 
-Proposes the normalized temporal evidence/uncertainty contract consumed by later stages.
+**Accepted.** Establishes the normalized temporal evidence/uncertainty contract consumed by later stages, including explicit distinction between source/document metadata time and content temporal mentions.
 
 ### ADR-004 — V1 Persistence and Search Storage
 
-Proposes PostgreSQL + integrated vector/full-text capabilities plus ArtifactStore as the V1 storage architecture.
+**Accepted.** Establishes PostgreSQL + integrated vector/full-text capabilities plus ArtifactStore as the V1 storage architecture.
 
-This directly resolves items currently marked deferred in `docs/architecture/architecture.md` and therefore must not be treated as globally accepted until orchestrator approval.
+The corresponding global invariants are recorded in `docs/architecture/architecture.md`.
 
 ## Acceptance Criteria
 
-Stage 2 may be marked Implementation Ready only when:
+Stage 2 is Implementation Ready because:
 
 - this document has been reviewed by the orchestrator,
-- ADR-002/003/004 are accepted or revised/rejected with corresponding Stage 2 changes,
-- `docs/architecture/architecture.md` is updated with all accepted Stage 2 global invariants and storage boundaries,
+- ADR-002/003/004 are accepted,
+- `docs/architecture/architecture.md` records the accepted Stage 2 global invariants and storage boundaries,
 - Stage 3 contract and corpus-boundary implications are accepted,
 - no unresolved architecture contradiction remains.
 
@@ -1079,17 +1089,18 @@ Stage 2 may be marked Implementation Ready only when:
 
 Stage 2 does not weaken any Stage 1 global evidence invariant.
 
-It proposes new global architecture in these areas:
+The following Stage 2 decisions are now accepted global architecture:
 
 1. immutable LogicalDocument/DocumentVersion/ProcessingGeneration/SearchRepresentationGeneration identities,
-2. canonical-evidence-versus-derived-search publication semantics,
-3. structured temporal evidence representation,
-4. one-corpus-per-logical-document V1 ownership,
-5. capability-aware degraded readiness,
-6. proposed PostgreSQL + vector/full-text + ArtifactStore V1 persistence architecture,
-7. asynchronous checkpointed ingestion with no partial search visibility.
+2. explicit publication of active DocumentVersion + ProcessingGeneration searchable state,
+3. canonical-evidence-versus-derived-search publication semantics,
+4. structured temporal evidence representation with explicit temporal origin,
+5. one-corpus-per-logical-document V1 ownership,
+6. capability-aware degraded readiness,
+7. PostgreSQL + vector/full-text + ArtifactStore V1 persistence architecture,
+8. asynchronous checkpointed ingestion with no partial search visibility.
 
-The current `docs/architecture/architecture.md` intentionally leaves these concrete Stage 2 choices undecided. It must be updated only after orchestrator acceptance of the proposed ADRs.
+These decisions are reflected in `docs/architecture/architecture.md` and ADR-002 through ADR-004.
 
 ---
 
@@ -1124,13 +1135,13 @@ Stage 2 exposes degraded capabilities while Stage 3/5/6 decide query-time/user-f
 2. Temporal extraction quality is a primary product risk because historical expressions are nuanced and false precision is unacceptable.
 3. Reprocessing reuse requires strict generation-compatibility checks to avoid stale derived artifacts.
 4. One globally active SearchRepresentationGeneration simplifies correctness but makes full search-model migration a coordinated cutover.
-5. One corpus per logical document simplifies V1 evidence-boundary enforcement but is a product/architecture constraint that should be documented globally.
+5. One corpus per logical document simplifies V1 evidence-boundary enforcement but is a product/architecture constraint that should remain documented globally.
 
 ### Review conclusion
 
-No contradiction currently requires reopening Stage 1. The Stage 2 architecture is internally coherent and ready for orchestrator review.
+No contradiction requires reopening Stage 1. The orchestrator review is complete, ADR-002/003/004 are accepted, and the accepted global architecture has been updated.
 
-The global architecture must not yet claim the proposed storage/lifecycle/temporal decisions as accepted until ADR-002/003/004 receive orchestrator approval.
+Stage 2 is **Implementation Ready**.
 
 ---
 
@@ -1142,7 +1153,7 @@ Stage 2 — Data Ingestion Pipeline
 
 ### Status
 
-**Architecture Ready — awaiting orchestrator review.**
+**Implementation Ready.**
 
 ### Major Decisions
 
@@ -1153,30 +1164,32 @@ Stage 2 — Data Ingestion Pipeline
 - Canonical normalized structural document representation.
 - Structure-aware, token-bounded chunking with overlap only for forced splits.
 - Deterministic generation-scoped chunk identity and durable source-span provenance.
-- Structured multi-mention temporal evidence with ranges, precision, uncertainty, BCE/CE, and unresolved relative expressions.
+- Structured multi-mention temporal evidence with ranges, precision, uncertainty, BCE/CE, unresolved relative expressions, and explicit temporal origin.
 - Dense + lexical representation required for search readiness.
 - ProcessingGeneration separated from SearchRepresentationGeneration.
+- One active ProcessingGeneration chunk set per active DocumentVersion.
 - One globally active SearchRepresentationGeneration in V1.
 - Canonical chunks/evidence are authoritative; search indexes are derived/rebuildable.
 - Asynchronous checkpointed ingestion with durable IngestionRun attempts.
-- No partially searchable document versions.
-- Atomic publication/active-version cutover.
+- No partially searchable document versions or processing generations.
+- Atomic publication/active-version-and-processing-generation cutover.
 - READY_DEGRADED with per-capability state for explicitly permitted temporal/provenance-location degradation.
 - Incremental reprocessing/re-indexing and durable deletion/tombstone behavior.
 
-### Architecture Changes Proposed
+### Global Architecture Changes Accepted
 
-- Add document/version/processing/search-generation lifecycle to global architecture.
-- Add structured temporal evidence representation as a cross-stage contract.
-- Add canonical evidence versus derived search-index publication semantics.
-- Add one-corpus-per-document V1 ownership.
-- Add capability-aware degraded readiness.
-- Adopt PostgreSQL + integrated vector/full-text + ArtifactStore as proposed V1 persistence architecture.
-- Add asynchronous ingestion/publication boundary.
+- Document/version/processing/search-generation lifecycle.
+- Explicit active DocumentVersion + ProcessingGeneration publication contract.
+- Structured temporal evidence representation and temporal-origin distinction.
+- Canonical evidence versus derived search-index publication semantics.
+- One-corpus-per-document V1 ownership.
+- Capability-aware degraded readiness.
+- PostgreSQL + integrated vector/full-text + ArtifactStore V1 persistence architecture.
+- Asynchronous ingestion/publication boundary.
 
 ### Dependencies
 
-- Stage 3 must enforce selected corpus plus active document/version/search-generation/deletion eligibility.
+- Stage 3 must enforce selected corpus plus active document/version/processing-generation/search-generation/deletion eligibility.
 - Stage 3 owns query-time dense/lexical/temporal retrieval and ranking.
 - Stage 5 owns final evidence deduplication/corroboration using Stage 2 lineage/hash signals.
 - Stage 6 owns citation rendering from Stage 2 authoritative provenance.
@@ -1184,11 +1197,11 @@ Stage 2 — Data Ingestion Pipeline
 - Stage 8 must trace ingestion runs, stages, failures, counts, and publication validation.
 - Stage 10 may evolve worker/object/search deployment topology.
 
-### ADRs Required
+### ADRs Accepted
 
-- `ADR-002-ingestion-identity-versioning-publication.md` — Proposed.
-- `ADR-003-temporal-evidence-representation.md` — Proposed.
-- `ADR-004-v1-persistence-search-storage.md` — Proposed.
+- `ADR-002-ingestion-identity-versioning-publication.md` — Accepted.
+- `ADR-003-temporal-evidence-representation.md` — Accepted.
+- `ADR-004-v1-persistence-search-storage.md` — Accepted.
 
 ### New Specs Required
 
@@ -1200,7 +1213,7 @@ No architecture-blocking Stage 2 question remains. Concrete libraries/models/ind
 
 ### Risks
 
-- PostgreSQL vector/full-text performance at target scale.
+- PostgreSQL vector/full-text performance at target scale,
 - temporal extraction false precision or low recall,
 - stale artifact reuse if generation compatibility is implemented loosely,
 - coordinated cutover complexity for SearchRepresentationGeneration migration,
@@ -1209,8 +1222,9 @@ No architecture-blocking Stage 2 question remains. Concrete libraries/models/ind
 ### Files Created or Updated
 
 - `docs/stages/02-ingestion.md`
+- `docs/architecture/architecture.md`
 - `docs/architecture/decisions/ADR-002-ingestion-identity-versioning-publication.md`
 - `docs/architecture/decisions/ADR-003-temporal-evidence-representation.md`
 - `docs/architecture/decisions/ADR-004-v1-persistence-search-storage.md`
 
-`docs/architecture/architecture.md` requires update after orchestrator acceptance of the proposed ADRs; it is intentionally not changed in this Stage 2 handoff because that file contains accepted architecture only.
+Stage 2 acceptance is complete and its global decisions are integrated into the accepted architecture.
