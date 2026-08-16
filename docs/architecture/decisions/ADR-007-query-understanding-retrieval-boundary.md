@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -25,11 +25,13 @@ Conversely, pushing every dense/lexical/temporal implementation detail into Stag
 
 ## Decision
 
-ASTRAG separates **query/temporal understanding** from **core local retrieval execution** through a structured `LocalRetrievalRequest` contract.
+ASTRAG separates **Query + Temporal Understanding** from **core local retrieval execution** through a structured `LocalRetrievalRequest` contract.
 
-### Upstream query/temporal understanding owns
+The Query + Temporal Understanding component is an upstream logical responsibility coordinated by Stage 4. Stage 4 owns when interpretation/re-interpretation or additional evidence-seeking steps occur; Stage 3 does not own that agentic lifecycle.
 
-Before Stage 3 core retrieval executes, upstream query understanding is responsible for:
+### Query + Temporal Understanding owns
+
+Before Stage 3 core retrieval executes, the upstream component is responsible for:
 
 - interpreting the current question using relevant short-term conversation,
 - resolving conversational references such as `that event` when reasonably possible,
@@ -37,7 +39,7 @@ Before Stage 3 core retrieval executes, upstream query understanding is responsi
 - resolving current-date-relative expressions such as `on this day` and `100 years ago today`,
 - producing zero or more structured `TemporalIntent` values,
 - preserving original temporal wording, precision, certainty, and resolution assumptions,
-- selecting or recommending a supported Stage 3 retrieval profile where possible.
+- selecting or recommending a supported Stage 3 retrieval profile where the intent requires one.
 
 Conversation history remains interpretive context and is not a factual evidence source.
 
@@ -59,7 +61,7 @@ LocalRetrievalRequest
 
 Stage 3 does not require raw conversation history as part of its core retrieval contract.
 
-This makes a retrieval execution reproducible from its explicit request, captured active SearchRepresentationGeneration, persisted corpus state, and retrieval configuration.
+This makes a retrieval execution reproducible from its explicit request, captured retrieval-state identity, persisted corpus state, and retrieval configuration.
 
 ### Stage 3 owns deterministic retrieval mechanics
 
@@ -69,6 +71,7 @@ Stage 3 owns:
 - validating/executing selected local corpus scope,
 - generating the query embedding using the active SearchRepresentationGeneration,
 - deriving the lexical query from the resolved retrieval query,
+- deriving a deterministic default retrieval profile when the profile is omitted,
 - selecting retrieval routes from structured intent/profile,
 - dense, lexical, and temporal candidate retrieval,
 - eligibility enforcement,
@@ -79,6 +82,20 @@ Stage 3 owns:
 - retrieval output/provenance/scoring metadata.
 
 Stage 3 may perform deterministic normalization needed by the underlying retrieval implementation.
+
+### Retrieval profile derivation and validation
+
+Stage 4/upstream query understanding may select from the supported Stage 3 retrieval profiles, but Stage 3 defines the meaning/configuration of those profiles.
+
+When the profile is omitted, Stage 3 derives a deterministic default from the structured request:
+
+- point or recurring-day temporal intent → `TEMPORAL_POINT`,
+- range/before/after/proximity temporal intent → the closest supported temporal profile, normally `TEMPORAL_RANGE`,
+- no temporal intent → `FACT_LOOKUP` unless an explicit broad/timeline intent selects another supported profile.
+
+An explicitly unknown profile is an invalid V1 request. It must not silently become `FACT_LOOKUP`, because doing so could weaken the retrieval strategy for a temporal query.
+
+Callers do not directly control internal RRF constants, arbitrary route weights, or raw candidate budgets.
 
 ### Stage 3 does not own agentic query rewriting
 
@@ -91,43 +108,40 @@ Stage 3 does not autonomously:
 - coordinate web search or other tools,
 - decide when the overall agent should stop gathering evidence.
 
-These behaviors belong to Stage 4 orchestration or an upstream query-understanding component coordinated by Stage 4.
+These behaviors belong to Stage 4 orchestration or the Query + Temporal Understanding component when Stage 4 coordinates it.
 
 ### Unresolved references/anchors
 
-If upstream query understanding cannot safely resolve a conversational or temporal reference, it should preserve the unresolved/degraded interpretation rather than invent facts.
+If Query + Temporal Understanding cannot safely resolve a conversational or temporal reference, it preserves the unresolved/degraded interpretation rather than inventing facts.
 
-Stage 3 may still execute semantic/lexical retrieval when the structured request remains meaningful. If the missing anchor makes meaningful retrieval impossible, Stage 3 may fail the request with structured reason metadata.
+Stage 3 may still execute semantic/lexical retrieval when the structured request remains meaningful. If the missing anchor makes meaningful retrieval impossible, Stage 3 fails the request with structured reason metadata.
 
-### Retrieval profiles
-
-Stage 4/upstream query understanding may select from the supported Stage 3 retrieval profiles, but Stage 3 defines the meaning/configuration of those profiles.
-
-Callers do not directly control internal RRF constants, arbitrary route weights, or raw candidate budgets.
+Stage 4 may then perform a separate evidence-seeking step to resolve the anchor and issue a new explicit `LocalRetrievalRequest`.
 
 ### Multi-step retrieval
 
 If one retrieval execution is insufficient, Stage 4 may issue another explicit `LocalRetrievalRequest` as part of a broader agent trajectory.
 
-Each Stage 3 execution remains independently traceable and deterministic given its explicit inputs and state snapshot.
+Each Stage 3 execution remains independently traceable and deterministic given its explicit inputs and captured state.
 
 ## Consequences
 
 ### Positive
 
 - Stage 3 remains a focused retrieval subsystem rather than becoming the whole agent.
-- Stage 4 remains free to coordinate multi-step strategies without depending on pgvector/FTS implementation details.
+- Stage 4 has explicit ownership of interpretation/replanning coordination without controlling pgvector/FTS mechanics.
 - Conversation context cannot silently expand factual evidence permissions.
 - Temporal interpretation is explicit, inspectable, and testable.
 - Retrieval executions become reproducible and easier to evaluate independently.
+- Profile omission cannot silently weaken temporal retrieval.
 - Agentic query expansion can evolve later without changing Stage 3's core retrieval semantics.
 
 ### Negative
 
-- The system needs an explicit query-understanding boundary/contract before local retrieval.
+- The system needs an explicit Query + Temporal Understanding contract before local retrieval.
+- Stage 4 must coordinate unresolved-reference/anchor recovery when it requires additional evidence.
 - Upstream components must preserve enough interpretation metadata for Stage 3 and observability.
-- Some failures may require coordination between query understanding and retrieval rather than one monolithic component handling everything internally.
-- Stage 4 may need to issue additional retrieval requests when an unresolved anchor requires evidence discovery.
+- Some failures require coordination between query understanding and retrieval rather than one monolithic component handling everything internally.
 
 ## Alternatives Considered
 
@@ -143,6 +157,10 @@ Rejected because it couples orchestration to retrieval-engine mechanics and make
 
 Rejected for V1 because multi-query strategy is agentic orchestration and should be evaluated as such rather than hidden inside one retrieval call.
 
+### Unknown profiles silently fall back to FACT_LOOKUP
+
+Rejected because malformed cross-stage input should not silently weaken temporal retrieval behavior.
+
 ### No structured temporal intent
 
 Rejected because temporal retrieval is a primary ASTRAG capability and requires explicit, uncertainty-preserving query semantics.
@@ -153,7 +171,7 @@ Revisit this ADR if:
 
 - evaluation shows tightly integrated retrieval-time query rewriting is necessary for acceptable recall,
 - Stage 4's orchestration becomes unnecessarily coupled to query-understanding internals,
-- a dedicated shared query-understanding service/component becomes a global architectural requirement,
+- a dedicated shared query-understanding service/component becomes a deployment-level requirement,
 - or production/API constraints require moving interpretation boundaries while preserving the same evidence invariants.
 
 ## Affected Stages
@@ -172,4 +190,6 @@ Revisit this ADR if:
 - `docs/stages/01-problem-definition.md`
 - `docs/stages/03-retrieval.md`
 - `docs/architecture/decisions/ADR-001-query-source-execution-policy.md`
+- `docs/architecture/decisions/ADR-005-v1-local-hybrid-retrieval-fusion-policy.md`
 - `docs/architecture/decisions/ADR-006-temporal-query-retrieval-policy.md`
+- `docs/architecture/decisions/ADR-008-retrieval-eligibility-consistency-cutover-policy.md`
