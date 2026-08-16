@@ -757,10 +757,10 @@ Major downstream dependencies include:
 
 Stage 1 contains no implementation work.
 
-After Stage 1 receives orchestrator approval:
+With orchestrator approval complete:
 
-1. update accepted product-level documentation,
-2. create required ADRs if architectural alternatives warrant them,
+1. maintain the accepted product-level documentation,
+2. preserve ADR-001 and the global architecture as higher-level constraints,
 3. propagate the Stage 1 behavioral contract into later stage designs,
 4. begin Stage 2 ingestion design,
 5. introduce evaluation examples early rather than waiting until Stage 7.
@@ -788,38 +788,42 @@ The following are intentionally deferred:
 
 ---
 
-## Decisions Requiring Orchestrator Approval
+## Orchestrator Decisions
 
-### 1. Product Scope Expansion
+### 1. Product Scope Expansion — Accepted
 
-Current North Star framing emphasizes an historical RAG system.
+The orchestrator accepted the Stage 1 clarification that ASTRAG is:
 
-Stage 1 proposes clarifying the product as:
+> An evidence-grounded RAG system that supports general-purpose retrieval-augmented QA while being specifically optimized and evaluated for historical and temporal question answering.
 
-> A generic evidence-grounded RAG system with historical and temporal QA as its primary optimization target.
+Historical/temporal QA remains the primary product specialization and evaluation focus.
 
-This allows general-purpose and current-news questions while preserving historical QA as the primary benchmark and product specialization.
+`NORTHSTAR.md` has been updated to reflect this accepted product-level clarification.
 
-This change affects the project-wide product definition and therefore requires orchestrator approval.
+### 2. Query-Controlled Mandatory Hybrid Retrieval — Accepted
 
-### 2. Query-Controlled Mandatory Hybrid Retrieval
-
-The current North Star describes web retrieval as something the system performs when additional evidence is required.
-
-Stage 1 instead proposes explicit user-controlled source semantics:
+The orchestrator accepted the V1 source execution policy:
 
 - Web OFF → selected corpora only.
 - Web ON + selected corpora → selected corpora **and web are both searched**.
 - Web ON + no corpora → web-only.
 - Web OFF + no corpora → invalid query.
 
-This changes global retrieval behavior and therefore requires orchestrator approval and, if accepted, an update to the North Star and potentially the global architecture.
+This architecture decision is recorded in:
+
+- `docs/architecture/decisions/ADR-001-query-source-execution-policy.md`
+
+The accepted global invariants are reflected in:
+
+- `docs/architecture/architecture.md`
+- `NORTHSTAR.md`
+- `CLAUDE.md`
 
 ---
 
 ## Acceptance Criteria
 
-Stage 1 is complete when:
+Stage 1 is complete because:
 
 - supported query classes are documented,
 - V1 scope and non-goals are documented,
@@ -835,7 +839,8 @@ Stage 1 is complete when:
 - retrieval failure and degradation behavior is explicit,
 - initial quality targets are defined,
 - scale and concurrency assumptions are documented,
-- product-level changes are surfaced to the orchestrator,
+- product-level changes have received orchestrator approval,
+- required global documentation and ADRs have been created,
 - unresolved implementation details are correctly deferred to later stages.
 
 Stage 1 does **not** require selection of:
@@ -853,9 +858,7 @@ Stage 1 does **not** require selection of:
 
 ## Impact on Existing Architecture
 
-No accepted global architecture currently exists to modify.
-
-However, the Stage 1 requirements impose future architectural constraints around:
+Stage 1 established the initial accepted global architecture constraints around:
 
 - explicit corpus boundaries,
 - query-level source configuration,
@@ -867,7 +870,7 @@ However, the Stage 1 requirements impose future architectural constraints around
 - retrieval failure isolation,
 - evaluation and traceability.
 
-These should be incorporated into `docs/architecture/architecture.md` only after orchestrator approval.
+These constraints are now recorded in `docs/architecture/architecture.md` and ADR-001.
 
 ---
 
@@ -879,7 +882,7 @@ Stage 1: Problem Definition & System Behaviour
 
 ### Status
 
-**Reviewed / awaiting orchestrator approval**
+**Implementation Ready**
 
 ### Major Decisions
 
@@ -896,12 +899,12 @@ Stage 1: Problem Definition & System Behaviour
 - V1 uses paragraph/answer-level citations.
 - Initial quality targets are defined.
 
-### Architecture Changes Proposed
+### Architecture Changes Accepted
 
-- Introduce query-scoped corpus boundaries.
-- Introduce explicit query-level web configuration.
-- Require hybrid local + web evidence gathering when web is enabled.
-- Preserve provenance and conflicts through the end-to-end system.
+- Query-scoped corpus boundaries.
+- Explicit query-level web configuration.
+- Mandatory hybrid local + web evidence gathering when web is enabled and corpora are selected.
+- End-to-end provenance and conflict preservation.
 
 ### Dependencies
 
@@ -909,9 +912,7 @@ Stages 2–10 consume this contract.
 
 ### ADRs Required
 
-None identified yet from Stage 1 alone.
-
-Specific technology choices may generate ADRs during later stages.
+- `docs/architecture/decisions/ADR-001-query-source-execution-policy.md` — **Accepted**.
 
 ### New Specs Required
 
@@ -919,7 +920,7 @@ None at this stage.
 
 ### Open Questions
 
-Implementation-level retrieval, ranking, source authority, model selection, and API schemas remain deferred.
+Implementation-level retrieval, ranking, source authority, model selection, and API schemas remain deferred to their owning stages.
 
 ### Risks
 
@@ -931,11 +932,8 @@ Implementation-level retrieval, ranking, source authority, model selection, and 
 
 ### Files Created or Updated
 
-Proposed:
-
 - `docs/stages/01-problem-definition.md`
-
-Pending orchestrator approval:
-
 - `NORTHSTAR.md`
-- future `docs/architecture/architecture.md`, if required by accepted architectural changes.
+- `docs/architecture/architecture.md`
+- `docs/architecture/decisions/ADR-001-query-source-execution-policy.md`
+- `CLAUDE.md`
