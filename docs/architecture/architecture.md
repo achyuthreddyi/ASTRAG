@@ -4,9 +4,9 @@
 
 This document describes the current accepted end-to-end architecture of ASTRAG at a project-wide level.
 
-It contains only architecture that has been accepted across stages. Stage-specific implementation details belong in `docs/stages/`, and significant architecture choices belong in `docs/architecture/decisions/`.
+It contains only architecture accepted across stages. Stage-specific implementation details belong in `docs/stages/`, and significant architecture choices belong in `docs/architecture/decisions/`.
 
-Stage 1 defines the global behavioral constraints. Stage 2 now defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Retrieval ranking, orchestration, context assembly, generation, and production serving details remain owned by later stages.
+Stage 1 defines the global behavioral contract. Stage 2 defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Stage 3 defines the accepted deterministic local retrieval architecture, temporal retrieval semantics, query-understanding boundary, and concurrent eligibility/cutover policy. Broader orchestration, context assembly, generation, and production serving details remain owned by later stages.
 
 ---
 
@@ -18,6 +18,7 @@ The system combines:
 
 - user-selected document corpora,
 - semantic retrieval,
+- lexical retrieval,
 - temporal/date-aware retrieval,
 - optional web access controlled per query,
 - agentic orchestration,
@@ -45,19 +46,22 @@ Client / Query Interface
         │ question
         │ selected_corpora[]
         │ web_enabled
-        │ conversation context
+        │ relevant conversation context
         ▼
 Query + Temporal Understanding
+(coordinated by Stage 4)
         │
+        │ structured retrieval intent
         ▼
 Agent / Orchestration
         │
-        │ enforce query evidence boundary
+        │ enforce configured source boundary
         │
         ├───────────────┐
         ▼               ▼
 Local Corpus         Web Retrieval
 Retrieval            (when Web ON)
+(Stage 3)               │
         │               │
         └───────┬───────┘
                 ▼
@@ -76,7 +80,7 @@ Retrieval            (when Web ON)
 Answer + Citations + Conflict / Uncertainty Disclosure
 ```
 
-The diagram expresses responsibilities and accepted storage boundaries, not deployment topology.
+The diagram expresses logical responsibilities and accepted storage/evidence boundaries, not deployment topology.
 
 ---
 
@@ -107,8 +111,7 @@ The evidence boundary is authoritative.
 - Web ON requires web retrieval in V1.
 - Conversation history cannot expand the current query's evidence permissions.
 - Model memory cannot replace missing retrieved factual evidence.
-
-The agent retains discretion over execution strategy within this boundary.
+- The agent may choose strategy within the configured boundary but may not override the boundary.
 
 ---
 
@@ -126,13 +129,25 @@ Corpora are first-class query boundaries.
 
 A query may search one or more selected corpora using union semantics, but evidence from unselected corpora must remain inaccessible to that query's factual answer.
 
-In V1, each logical document has exactly one owning corpus at a time. Corpus identity is preserved into searchable records so Stage 3 can enforce the query's selected-corpus boundary.
+In V1, each logical document has exactly one owning corpus at a time. Corpus identity survives ingestion and retrieval so selected-corpus enforcement is structural.
+
+Target corpus-boundary violation rate: **0**.
 
 ### 3. Provenance Preservation
 
 Evidence provenance must survive the complete pipeline.
 
-Local evidence remains attributable to corpus, logical document, immutable document version, processed chunk set, and chunk. Page/section/source-span metadata is preserved where available. Web evidence retains external source identity.
+Local evidence remains attributable to:
+
+- corpus,
+- logical document,
+- immutable document version,
+- active processed chunk set / ProcessingGeneration,
+- SearchRepresentationGeneration,
+- canonical chunk,
+- page/section/source spans where available.
+
+Web evidence retains external-source identity.
 
 Later stages must not discard provenance merely because doing so makes an intermediate interface tidier.
 
@@ -141,62 +156,70 @@ Later stages must not discard provenance merely because doing so makes an interm
 ASTRAG preserves and reasons over temporal information including:
 
 - exact dates,
-- date ranges,
+- ranges,
 - before/after relationships,
 - ordering,
-- approximate dates,
+- approximate periods,
 - BCE/CE,
 - temporal uncertainty,
 - multiple temporal mentions,
+- recurring month/day semantics,
 - unresolved relative expressions.
 
-Stage 2 persists structured temporal mentions while retaining original wording and uncertainty. Source/document metadata time is explicitly distinguishable from temporal expressions mentioned in content; source time must not silently become event time.
+Stage 2 persists structured TemporalMentions while retaining original wording and uncertainty. Source/document metadata time is explicitly distinguishable from temporal expressions mentioned in content; source time must not silently become event time.
 
-Temporal metadata remains available across ingestion, retrieval, context assembly, generation, and evaluation where applicable.
+Stage 3 consumes structured query-time TemporalIntent values and uses temporal information for candidate generation/ranking without converting optional temporal enrichment into a universal evidence-eligibility requirement.
 
 ### 5. Conflict Preservation
 
 Conflicting evidence must not be silently collapsed into a single claim.
 
-The system must preserve enough provenance for generation to expose conflicting claims and cite each side.
+The system preserves enough independent source identity for later stages to expose conflicting claims and cite each side.
 
 ### 6. Duplicate Evidence Must Not Inflate Corroboration
 
-Duplicate or substantially copied evidence from multiple retrieval paths must not be represented as independent confirmation.
+Duplicate or substantially copied evidence must not be represented as independent confirmation merely because it arrived through multiple retrieval paths.
 
-Stage 2 preserves exact source hashes, chunk content hashes, and lineage signals. Final semantic deduplication and corroboration semantics belong to Stage 5.
+Stage 2 preserves exact source hashes, chunk content hashes, and lineage signals.
+
+Stage 3 consolidates repeated retrieval hits for the same canonical `chunk_id` while keeping all route signals. Distinct canonical chunks remain distinct even when duplicate-lineage signals match.
+
+Final semantic/source-level deduplication and corroboration semantics belong to Stage 5.
 
 ### 7. Short-Term Conversation Is Interpretive Context
 
-Short-term conversation may resolve references such as "that event" or "what happened next".
+Short-term conversation may resolve references such as `that event` or `what happened next`.
 
 It is not an additional factual evidence source and cannot bypass the current query's corpus/web configuration.
 
 ### 8. Graceful Evidence-Source Failure
 
-Configured retrieval sources should fail independently where practical.
+Configured retrieval sources/routes should fail independently where practical.
 
-If one source fails while another returns usable evidence, ASTRAG may produce a grounded partial answer using the successful source and explicitly disclose the retrieval failure.
+If one configured source fails while another returns usable evidence, ASTRAG may produce a grounded partial answer using the successful source and explicitly disclose the retrieval failure.
 
-Successful retrieval with no relevant evidence must remain distinguishable from retrieval-system failure.
+Successful retrieval with no candidates/evidence must remain distinguishable from retrieval-system failure.
 
 ### 9. Traceability and Evaluation
 
 The architecture must make it possible to observe at least:
 
-- the user query,
+- user query,
 - selected corpora,
 - web setting,
-- interpreted temporal constraints,
-- retrieval paths executed,
-- retrieved evidence and provenance,
-- retrieval failures,
+- interpreted temporal intent/constraints,
+- retrieval profile,
+- retrieval state/configuration identities,
+- routes executed,
+- retrieved evidence/provenance,
+- eligibility rejects/state changes,
+- retrieval failures/degradation,
 - context presented to generation,
 - final citations,
-- ingestion/publication lineage for local evidence,
+- ingestion/publication lineage,
 - latency,
 - token usage,
-- and cost where applicable.
+- cost where applicable.
 
 Evaluation and observability are cross-cutting requirements rather than end-of-project additions.
 
@@ -210,7 +233,7 @@ ASTRAG separates:
 - `SearchRepresentationGeneration` — immutable dense/lexical representation configuration,
 - `IngestionRun` — one durable processing attempt.
 
-Source changes create DocumentVersions. Processing changes do not. Search-representation changes do not create new source or chunk versions.
+Source changes create DocumentVersions. Processing changes do not. Search-representation changes do not create new source/chunk versions.
 
 Active documents may use different ProcessingGenerations. V1 uses one globally active SearchRepresentationGeneration for query-time local search.
 
@@ -218,13 +241,13 @@ Active documents may use different ProcessingGenerations. V1 uses one globally a
 
 New source versions, processed chunk sets, and search representations are built privately and validated before publication.
 
-A logical document's active publication identifies both its active `document_version_id` and active `processing_generation_id`. Reprocessing the same immutable source version therefore has an explicit cutover target rather than overloading DocumentVersion.
+A logical document's active publication identifies both its active `document_version_id` and active `processing_generation_id`.
 
-Partially parsed, partially represented, or partially indexed evidence is never query-visible.
+Partially parsed, represented, or indexed evidence is never query-visible.
 
 If replacement or reprocessing fails, the prior active publication remains searchable.
 
-`READY_DEGRADED` is permitted only for explicitly modeled optional capabilities. Dense representation, lexical representation, and core corpus/document/version/chunk lineage are mandatory for searchability.
+`READY_DEGRADED` is permitted only for explicitly modeled optional capabilities. Dense representation, lexical representation, and core lineage are mandatory for searchability.
 
 ### 12. Canonical Evidence Is Authoritative; Search Indexes Are Derived
 
@@ -232,7 +255,52 @@ Canonical chunks, lineage, temporal metadata, lifecycle state, and representatio
 
 Dense-vector and lexical indexes are rebuildable projections. Retrieval must not treat index membership alone as evidence eligibility.
 
-Deletion disables authoritative retrieval eligibility before asynchronous/physical cleanup. Stale derived records must therefore fail the final eligibility check.
+Deletion disables authoritative retrieval eligibility before asynchronous/physical cleanup. Stale derived records must fail final eligibility validation.
+
+### 13. Deterministic Local Retrieval Boundary
+
+Core Stage 3 local retrieval consumes a structured request rather than raw conversation history.
+
+Query + Temporal Understanding is an upstream logical responsibility coordinated by Stage 4. It resolves conversational/temporal interpretation where safe and preserves unresolved/uncertain state when not safe.
+
+Stage 3 owns deterministic local retrieval mechanics. Stage 4 owns multi-step strategy, web/local coordination, evidence-seeking retries/replanning, and stopping behavior.
+
+### 14. V1 Hybrid Local Retrieval
+
+Under ADR-005:
+
+- dense and lexical local retrieval execute by default,
+- strongly temporal requests may additionally execute a structured temporal candidate route,
+- route hits for the same canonical chunk are consolidated,
+- Reciprocal Rank Fusion is the V1 fusion baseline,
+- strong temporal profiles may apply a bounded deterministic temporal adjustment,
+- no learned reranker is required initially,
+- exact vector search is the initial benchmark baseline,
+- candidate/output budgets are internally controlled versioned configuration.
+
+PostgreSQL FTS remains the primary lexical mechanism. A bounded deterministic exact-token/phrase fallback within PostgreSQL protects materially important literal queries that FTS normalization handles poorly.
+
+### 15. Temporal Retrieval Preserves Recall and Uncertainty
+
+Under ADR-006, structured temporal intent may drive temporal candidate generation and ranking but is not a hard cross-route evidence filter by default.
+
+The temporal route may use strict route-local predicates. Dense/lexical candidates without matching temporal metadata remain eligible when useful, including when temporal extraction found zero mentions or degraded.
+
+Cross-route hard temporal exclusion is limited to explicit typed constraints whose semantics genuinely require exclusion.
+
+Approximate/uncertain periods remain approximate/uncertain; normalized search bounds never upgrade evidence to false exactness.
+
+### 16. Retrieval Eligibility and Concurrent Cutovers Fail Closed
+
+Under ADR-008, each Stage 3 execution captures a coherent request-scoped search state including the active SearchRepresentationGeneration and retrieval configuration identity.
+
+One result must never mix incompatible SearchRepresentationGenerations.
+
+Immediately before output, Stage 3 performs authoritative current-state validation. Candidates that became deleted, moved out of scope, superseded by publication/reprocessing, or otherwise ineligible are rejected and may be backfilled.
+
+If a global SearchRepresentationGeneration cutover invalidates the request search space, Stage 3 may perform a bounded transparent restart under the new generation. If a coherent restart cannot complete, it fails closed rather than returning mixed/stale evidence.
+
+Correctness does not depend on synchronous derived-index cleanup.
 
 ---
 
@@ -244,7 +312,7 @@ Each V1 logical document belongs to one corpus and may have multiple immutable s
 
 Explicit Create Document and Update Document operations determine logical identity. Filename similarity does not infer updates.
 
-Each source version stores a SHA-256 hash of the exact uploaded bytes for idempotency and exact-content equivalence. The hash is not logical document identity.
+Each source version stores SHA-256 over exact uploaded bytes for idempotency/exact-content equivalence. The hash is not logical document identity.
 
 Only one replacement version processes at a time for a logical document in V1. Existing active evidence remains searchable until the replacement passes publication validation and is atomically activated.
 
@@ -252,120 +320,203 @@ Reprocessing an existing source version under a new ProcessingGeneration follows
 
 ### Stage 2 → Stage 3 persisted contract
 
-Local searchable evidence exposes enough information for Stage 3 to obtain or enforce:
+Local searchable evidence exposes enough information for Stage 3 to obtain/enforce:
 
 - corpus identity,
 - logical document identity,
 - immutable document version,
-- chunk identity and source text,
+- chunk identity and canonical source text,
 - active ProcessingGeneration identity,
 - active SearchRepresentationGeneration identity,
-- dense and lexical search representations,
+- dense/lexical search representations,
 - structured temporal mentions,
 - stable page/section/source-span provenance where available,
 - capability/degraded state,
 - publication/readiness eligibility,
-- deletion/tombstone eligibility.
+- deletion/tombstone eligibility,
+- duplicate-lineage/hash signals where relevant.
 
-Stage 3 owns query-time retrieval, filtering, ranking, fusion, Top-K, reranking, and handling of degraded capabilities.
-
-A returned local record is valid evidence only when it belongs to a selected corpus and matches the authoritative active document version, active processed chunk set, globally active SearchRepresentationGeneration, and non-deleted searchable state.
+A returned local record is valid evidence only when it belongs to selected corpus scope and satisfies the authoritative active lifecycle/generation state.
 
 ### Failure and degraded capability model
 
 Unsupported, encrypted/password-protected, scanned/image-only, empty, corrupt, or otherwise non-extractable inputs fail non-retryably as appropriate.
 
-Transient processing failures are retryable through durable IngestionRuns and checkpoints. A retry is an execution attempt, not a new source version.
+Transient processing failures are retryable through durable IngestionRuns/checkpoints.
 
-Temporal extraction or optional provenance-location enrichment may be degraded while otherwise complete semantic/lexical evidence remains searchable. Zero temporal mentions is a successful extraction outcome and is distinct from temporal subsystem failure.
+Temporal extraction or optional provenance-location enrichment may be degraded while complete semantic/lexical evidence remains searchable. Zero temporal mentions is a successful extraction outcome and is distinct from temporal subsystem failure.
 
 Dense or lexical representation failure blocks publication.
 
 ### Deletion and corpus deletion
 
-Deletion first removes authoritative retrieval eligibility and then performs derived-index and artifact cleanup. A durable deleting/tombstone state survives partial cleanup failure.
+Deletion first removes authoritative retrieval eligibility and then performs derived-index/artifact cleanup. A durable deleting/tombstone state survives partial cleanup failure.
 
-Deleting a corpus semantically deletes its owned documents and their versions/artifacts through the same lifecycle rules.
+Deleting a corpus semantically deletes its owned documents and artifacts through the same lifecycle rules.
+
+---
+
+## Accepted Stage 3 Local Retrieval Architecture
+
+### Structured request contract
+
+Stage 3 conceptually receives:
+
+```text
+LocalRetrievalRequest
+- query_id
+- original_question
+- retrieval_query
+- selected_corpus_ids[]
+- temporal_intents[]
+- metadata_constraints[]
+- retrieval_profile
+- interpretation_metadata
+```
+
+Unknown profile values are invalid requests. When a profile is omitted, Stage 3 derives a deterministic default from structured intent so temporal requests are not silently downgraded to generic fact lookup.
+
+### Retrieval routes
+
+Normal V1 local retrieval executes:
+
+```text
+Dense Retrieval
++ Lexical Retrieval
++ Temporal Retrieval when structured temporal intent/profile requires it
+```
+
+Dense retrieval uses the captured active SearchRepresentationGeneration.
+
+Lexical retrieval uses PostgreSQL FTS plus the bounded literal fallback when necessary.
+
+Temporal retrieval searches structured TemporalMentions while preserving multiple mentions, source/content origin, semantic role, precision, certainty, BCE/CE, ranges, and unresolved state.
+
+### Fusion and ranking
+
+Candidate lists are consolidated by canonical `chunk_id` before fusion.
+
+V1 uses RRF because route score domains are heterogeneous. The RRF constant and candidate budgets are configuration, not architectural constants.
+
+Strong temporal profiles may apply a bounded deterministic post-RRF temporal adjustment.
+
+A mild document-level diversity penalty may be used as a retrieval-quality safeguard, but final context diversity remains Stage 5.
+
+No learned reranker is present in the initial V1 baseline. Reranking is reconsidered when evaluation shows relevant evidence exists in the fused pool but is consistently ordered below Stage 5's practical cutoff.
+
+### Retrieval result contract
+
+Stage 3 returns provenance-complete canonical evidence candidates containing enough identity and retrieval metadata for later stages, including:
+
+- corpus/document/version/ProcessingGeneration/SearchRepresentationGeneration/chunk identity,
+- authoritative `source_text`,
+- provenance/location metadata where available,
+- TemporalMentions,
+- duplicate-lineage signals,
+- route signals/ranks,
+- temporal match information,
+- fusion/final Stage 3 rank,
+- capability/degradation state.
+
+Derived embedding/contextualized text never replaces canonical source evidence.
+
+### Retrieval outcome contract
+
+Stage 3 distinguishes at least:
+
+```text
+SUCCESS_WITH_CANDIDATES
+SUCCESS_NO_CANDIDATES
+SUCCESS_DEGRADED
+FAILURE
+```
+
+A route failure may degrade to other successful routes. Database-wide unavailability, inability to verify authoritative eligibility, incoherent search-generation state, or invalid request state never masquerades as successful no-results retrieval.
+
+Stage 3 does not decide final evidence sufficiency/answerability.
 
 ---
 
 ## V1 Persistence and Search Storage
 
-ADR-004 establishes the initial persistence boundary:
+ADR-004 establishes the persistence boundary:
 
-- **PostgreSQL** is the authoritative relational store for corpus/document lifecycle, immutable versions and generations, canonical chunks, provenance, temporal metadata, ingestion state, and search-representation metadata.
-- An integrated vector capability such as **pgvector** stores/indexes dense embeddings.
-- **PostgreSQL full-text search** provides the V1 lexical-search representation/index.
-- An **ArtifactStore abstraction** stores large immutable original-source and normalized-document artifacts; its concrete V1 backend may be local filesystem or object storage.
+- PostgreSQL is the authoritative relational store for corpus/document lifecycle, immutable versions/generations, canonical chunks, provenance, temporal metadata, ingestion state, and search-representation metadata.
+- Integrated vector capability such as pgvector stores/searches dense embeddings.
+- PostgreSQL full-text search provides the primary V1 lexical representation/search mechanism.
+- ArtifactStore stores large immutable original-source and normalized-document artifacts.
 
-This integrated design is chosen for the accepted V1 envelope of one primary user, low concurrency, hundreds to thousands of documents, and roughly up to one million chunks. Vector/full-text performance near the upper envelope must be benchmarked before introducing a dedicated vector database or search engine.
+This integrated design targets one primary user, low concurrency, hundreds to thousands of documents, and approximately up to one million chunks.
 
-PostgreSQL search indexes remain derived projections rather than the canonical evidence authority. This preserves a migration path to specialized search infrastructure if later stages demonstrate a need.
+Vector, lexical fallback, temporal, and eligibility-validation performance near the upper V1 envelope must be benchmarked before introducing specialized search infrastructure.
+
+PostgreSQL search indexes remain derived projections rather than canonical evidence authority.
 
 ---
 
 ## Major Logical Components
 
-The accepted architecture recognizes these logical responsibilities:
-
 1. **Ingestion / Document Lifecycle**
    - owns corpus/document lifecycle and immutable source versions,
-   - parses, normalizes, chunks, and enriches supported documents,
+   - parses, normalizes, chunks, and enriches documents,
    - produces dense/lexical representations,
    - validates and atomically publishes searchable evidence,
    - manages reprocessing, retries, deletion, and generation cutovers.
 
 2. **Canonical Evidence + Persistence**
-   - stores authoritative lifecycle, chunks, provenance, temporal metadata, and representation metadata in PostgreSQL,
+   - stores authoritative lifecycle/chunks/provenance/temporal/representation metadata,
    - stores immutable source/normalized artifacts behind ArtifactStore,
-   - treats search indexes as derived/rebuildable state.
+   - treats search indexes as derived/rebuildable.
 
 3. **Client / Query Interface**
-   - receives the question,
-   - selected corpora,
-   - web configuration,
-   - relevant conversational context.
+   - receives question, selected corpora, web setting, relevant short-term conversation.
 
 4. **Query + Temporal Understanding**
-   - interprets semantic intent,
-   - resolves query-time temporal language,
-   - preserves temporal uncertainty.
+   - upstream logical component coordinated by Stage 4,
+   - resolves conversational references where safe,
+   - resolves query-time temporal language/current-date-relative expressions,
+   - preserves ambiguity/uncertainty,
+   - produces structured retrieval intent/profile recommendation.
 
 5. **Agent / Orchestration**
-   - enforces configured source boundaries,
-   - coordinates retrieval/tool execution,
-   - manages retries and stopping behavior,
-   - does not override the source configuration.
+   - enforces configured source policy,
+   - coordinates Query + Temporal Understanding,
+   - coordinates local/web/tool execution,
+   - owns multi-step retrieval strategies, replanning, retries that alter strategy, and stopping behavior.
 
-6. **Local Corpus Retrieval**
-   - searches only selected corpora,
-   - enforces active publication/search-generation/deletion eligibility,
-   - preserves document/corpus provenance,
-   - consumes Stage 2 semantic, lexical, temporal, and provenance representations.
+6. **Local Corpus Retrieval (Stage 3)**
+   - searches only selected executable corpora,
+   - executes deterministic dense + lexical (+ temporal when appropriate) retrieval,
+   - enforces authoritative lifecycle/generation/deletion eligibility,
+   - preserves provenance and temporal/duplicate-lineage metadata,
+   - performs same-chunk consolidation/RRF and bounded retrieval-level adjustments,
+   - fails closed on unverifiable or incoherent eligibility state.
 
 7. **Web Retrieval**
    - executes whenever Web is ON in V1,
    - preserves external-source provenance,
    - fails independently from local retrieval where practical.
 
-8. **Evidence Pipeline / Context Assembly**
-   - combines permitted evidence,
+8. **Evidence Pipeline / Context Assembly (Stage 5)**
+   - combines permitted local/web evidence,
+   - performs final semantic/source deduplication and corroboration handling,
    - preserves conflicts,
-   - avoids false duplicate corroboration,
-   - orders and budgets context for generation.
+   - assesses evidence sufficiency,
+   - applies context diversity/source grouping/ordering/token budgets,
+   - selects final context for generation.
 
-9. **Grounded Generation**
-   - answers from retrieved evidence,
-   - exposes conflicts and uncertainty,
-   - returns citations,
+9. **Grounded Generation (Stage 6)**
+   - answers from retrieved/assembled evidence,
+   - exposes conflicts/uncertainty,
+   - renders citations,
    - acknowledges insufficient evidence.
 
 10. **Evaluation + Observability**
-   - measures component and end-to-end quality,
-   - traces source configuration, ingestion publication, and agent execution,
-   - tracks latency and cost.
+   - measures component/end-to-end quality,
+   - traces source configuration, ingestion publication, retrieval state/ranking, and agent execution,
+   - tracks latency/cost.
 
-These are logical boundaries. Except for the accepted V1 persistence/search-storage choice, service boundaries, process boundaries, frameworks, providers, and production deployment topology remain undecided.
+These are logical boundaries. Service/process boundaries, frameworks, providers, and production deployment topology remain undecided except where an accepted ADR states otherwise.
 
 ---
 
@@ -375,74 +526,52 @@ These are logical boundaries. Except for the accepted V1 persistence/search-stor
 
 ```text
 Create / Update Supported Document
-        ↓
-Persist source + lifecycle identity
-        ↓
-Parse / Normalize / Chunk
-        ↓
-Temporal + provenance enrichment
-        ↓
-Dense + lexical representation
-        ↓
-Build derived search projection
-        ↓
-Publication validation
-        ↓
-Atomic active publication
-        ↓
-READY / permitted READY_DEGRADED
+→ Persist source + lifecycle identity
+→ Parse / Normalize / Chunk
+→ Temporal + provenance enrichment
+→ Dense + lexical representation
+→ Build derived search projection
+→ Publication validation
+→ Atomic active publication
+→ READY / permitted READY_DEGRADED
 ```
 
-### Local-Only Query
+### Local-only query
 
 ```text
 Query + Selected Corpora + Web OFF
-        ↓
-Query / Temporal Understanding
-        ↓
-Selected-Corpus Retrieval
-        ↓
-Authoritative eligibility check
-        ↓
-Evidence Assessment + Context Assembly
-        ↓
-Grounded Generation
-        ↓
-Answer + Local Citations
+→ Query + Temporal Understanding
+→ Structured LocalRetrievalRequest
+→ Dense + Lexical (+ Temporal when appropriate)
+→ candidate eligibility
+→ same-chunk consolidation + RRF
+→ bounded retrieval adjustments
+→ final authoritative current-state validation/backfill
+→ Stage 5 context/sufficiency processing
+→ Grounded Generation
+→ Answer + Local Citations
 ```
 
-### Hybrid Query
+### Hybrid query
 
 ```text
 Query + Selected Corpora + Web ON
-        ↓
-Query / Temporal Understanding
-        ↓
-Local Retrieval + Web Retrieval
-        ↓
-Evidence Combination / Conflict Handling
-        ↓
-Context Assembly
-        ↓
-Grounded Generation
-        ↓
-Answer + Local/Web Citations
+→ Query + Temporal Understanding
+→ Stage 4 coordinates Local Retrieval + mandatory Web Retrieval
+→ Stage 5 evidence combination/conflict/deduplication/sufficiency/context selection
+→ Grounded Generation
+→ Answer + Local/Web Citations
 ```
 
-### Web-Only Query
+### Web-only query
 
 ```text
 Query + Web ON + No Corpus
-        ↓
-Query / Temporal Understanding
-        ↓
-Web Retrieval
-        ↓
-Evidence Assessment + Context Assembly
-        ↓
-Grounded Generation
-        ↓
-Answer + Web Citations
+→ Query + Temporal Understanding
+→ Web Retrieval
+→ Stage 5 evidence assessment/context assembly
+→ Grounded Generation
+→ Answer + Web Citations
 ```
 
 ---
@@ -454,42 +583,70 @@ Current accepted assumptions:
 - single tenant,
 - one primary user / low concurrency,
 - hundreds to thousands of documents,
-- design envelope up to approximately 1 million chunks,
+- design envelope up to approximately one million chunks,
 - one embedding model initially,
 - one globally active SearchRepresentationGeneration,
-- text-extractable PDF, TXT, Markdown, and DOCX inputs,
-- OCR and multimodal ingestion excluded from V1,
-- PostgreSQL with integrated dense-vector and lexical-search capabilities is the initial V1 search/storage foundation,
-- no mandatory external message broker for Stage 2 ingestion.
+- text-extractable PDF/TXT/Markdown/DOCX,
+- OCR and multimodal ingestion excluded,
+- PostgreSQL with integrated dense-vector and lexical-search capabilities is the V1 search/storage foundation,
+- no mandatory external message broker for Stage 2 ingestion,
+- no ANN requirement initially,
+- no learned reranker initially.
 
-These assumptions constrain later designs without requiring production-scale distributed infrastructure prematurely.
+These assumptions constrain later designs without requiring premature distributed infrastructure.
+
+---
+
+## Implementation-Time Retrieval Validation Requirements
+
+Stage 3 implementation must validate at least:
+
+- Recall@K, MRR, nDCG@K, Hit Rate@K and Precision@K where useful,
+- temporal retrieval correctness/Recall@K,
+- dense-only vs lexical-only vs hybrid vs hybrid+temporal ablations,
+- zero corpus-boundary violations,
+- zero stale/ineligible evidence leakage,
+- correct provenance/lineage,
+- exact-date/range/before/after/approximate/BCE-CE/recurring-day cases,
+- rare names, numbers, quoted phrases, acronyms/codes, and lexical fallback cases,
+- `TEMPORAL_READY + 0 mentions` versus `TEMPORAL_DEGRADED`,
+- deletion/publication/ProcessingGeneration/corpus-move/SRG cutover races,
+- no mixed SearchRepresentationGeneration output,
+- deterministic stable ordering for fixed request/state/config,
+- exact-vector/FTS/fallback/temporal/final-eligibility latency at representative V1 sizes.
+
+Exact numeric candidate budgets, RRF constants, temporal-adjustment weights, diversity penalties, and latency SLOs remain implementation/evaluation configuration.
 
 ---
 
 ## Decisions Intentionally Deferred
 
-The following remain owned by later implementation/stages:
+The following remain owned by later implementation/stages or benchmark-triggered revisits:
 
 - concrete PDF/DOCX parser libraries,
 - exact chunk-size/overlap tuning,
 - exact temporal-extraction libraries/models,
 - embedding model/provider,
-- PostgreSQL vector/full-text index tuning,
-- dense/lexical query fusion and ranking,
-- reranking,
-- temporal query representation and query-time temporal policy,
+- PostgreSQL vector/full-text/fallback index tuning,
+- exact retrieval candidate-budget defaults,
+- exact RRF constant,
+- exact temporal-adjustment weights,
+- exact document-diversity penalty,
+- ANN adoption/index type pending benchmark need,
+- learned reranker choice pending ranking evaluation,
 - agent framework,
 - concrete web-search provider integration,
 - context token budgeting,
 - prompt architecture,
-- generation model/provider selection,
-- exact API schema,
+- generation model/provider,
+- exact external API schema,
 - caching,
-- artifact retention/garbage-collection policy,
+- artifact retention/garbage collection,
 - production queue/topology,
-- source-quality ranking.
+- source-quality ranking,
+- production/multi-user debug-text retention policy.
 
-When one of these choices materially changes global architecture, the owning stage must escalate it to the orchestrator and create an ADR when appropriate.
+When one of these materially changes global architecture, the owning stage must escalate it and create/revise an ADR where appropriate.
 
 ---
 
@@ -499,18 +656,22 @@ When one of these choices materially changes global architecture, the owning sta
 - `ADR-002-ingestion-identity-versioning-publication.md` — source identity, immutable versions, processing/search generations, active publication, and authoritative retrieval eligibility are distinct.
 - `ADR-003-temporal-evidence-representation.md` — temporal evidence preserves multiple mentions, source/document versus content origin, normalization, precision, and uncertainty without inventing exactness.
 - `ADR-004-v1-persistence-search-storage.md` — PostgreSQL plus integrated vector/full-text capabilities and ArtifactStore form the V1 persistence/search-storage foundation.
+- `ADR-005-v1-local-hybrid-retrieval-fusion-policy.md` — dense + lexical retrieval are the V1 baseline, temporal routing is additive, same-chunk signals are consolidated, and RRF is the initial fusion policy.
+- `ADR-006-temporal-query-retrieval-policy.md` — structured uncertainty-preserving temporal intent drives candidate generation/ranking without universal hard temporal exclusion.
+- `ADR-007-query-understanding-retrieval-boundary.md` — Query + Temporal Understanding is upstream/coordinated by Stage 4; Stage 3 receives a structured request and owns deterministic retrieval mechanics.
+- `ADR-008-retrieval-eligibility-consistency-cutover-policy.md` — local retrieval captures coherent search state, performs output-time authoritative validation, and fails closed/restarts boundedly across incompatible cutovers.
 
 ---
 
 ## Stage Alignment
 
 - **Stage 1** defines the behavioral contract and global evidence invariants.
-- **Stage 2** owns ingestion, corpora, document lifecycle, immutable versions/generations, provenance capture, temporal metadata extraction, search representation generation, publication, reprocessing, and deletion.
-- **Stage 3** owns query-time local retrieval, selected-corpus enforcement, authoritative search eligibility checks, temporal/semantic/lexical retrieval behavior, ranking, and reranking.
-- **Stage 4** owns orchestration within the source policy established by ADR-001.
-- **Stage 5** owns evidence combination, semantic deduplication/corroboration, ordering, and context budgeting.
+- **Stage 2** owns ingestion, corpus/document lifecycle, immutable versions/generations, provenance capture, temporal metadata extraction, search representation generation, publication, reprocessing, and deletion.
+- **Stage 3** owns deterministic query-time local retrieval, selected-corpus enforcement, authoritative eligibility/cutover handling, dense/lexical/temporal candidate retrieval, same-chunk consolidation, RRF/bounded retrieval ranking, and retrieval-specific failures/degradation.
+- **Stage 4** owns Query + Temporal Understanding coordination, broader agent/tool orchestration, web + local coordination, multi-step query strategy, replanning, and stopping behavior within ADR-001.
+- **Stage 5** owns final evidence combination, sufficiency assessment, semantic deduplication/corroboration, context diversity/source grouping, chronological/context ordering, token budgeting, and final context selection.
 - **Stage 6** owns grounded response generation and citation rendering.
-- **Stage 7** formalizes evaluation of the quality targets.
-- **Stage 8** formalizes tracing and operational observability.
-- **Stage 9** adds reliability and guardrails without weakening evidence boundaries.
-- **Stage 10** defines production serving and scaling and may evolve worker/search deployment topology without changing canonical evidence semantics.
+- **Stage 7** formalizes evaluation including the accepted Stage 3 retrieval/race/temporal benchmarks.
+- **Stage 8** formalizes end-to-end tracing and operational observability including Stage 3 state/ranking traces.
+- **Stage 9** adds reliability/guardrails, including stale evidence, timeout, and retrieved-content/prompt-injection protections, without weakening evidence boundaries.
+- **Stage 10** defines production serving/scaling and may evolve worker/search deployment topology while preserving accepted canonical evidence/retrieval semantics.
