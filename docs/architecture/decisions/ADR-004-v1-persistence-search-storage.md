@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — requires orchestrator approval.
+Accepted
 
 ## Context
 
