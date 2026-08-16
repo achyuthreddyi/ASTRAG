@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -66,7 +66,7 @@ This adjustment exists because exact/strong temporal relevance is central to AST
 
 The adjustment must be bounded to prevent uncontrolled temporal double-counting. Exact weights are configuration and evaluation choices.
 
-### Retrieval profiles and budgets
+### Retrieval profiles and deterministic fallback
 
 V1 uses a small deterministic profile set, including:
 
@@ -79,6 +79,28 @@ V1 uses a small deterministic profile set, including:
 Profiles control internally managed candidate budgets, temporal-route activation, bounded temporal adjustment, diversity behavior, and output breadth.
 
 Callers may select a supported profile but do not arbitrarily supply internal route weights or candidate limits.
+
+When `retrieval_profile` is omitted, Stage 3 derives a deterministic default from the structured request rather than unconditionally choosing `FACT_LOOKUP`:
+
+- point/recurring-day temporal intent → `TEMPORAL_POINT`,
+- range/before/after/proximity temporal intent → the closest supported temporal profile, normally `TEMPORAL_RANGE`,
+- no temporal intent → `FACT_LOOKUP` unless an explicit upstream broad/timeline intent selects another supported profile.
+
+An explicitly unknown profile value is an invalid request in V1. Stage 3 must not silently downgrade a temporal request to `FACT_LOOKUP`.
+
+### Lexical exact-token / phrase preservation
+
+PostgreSQL full-text search remains the primary V1 lexical mechanism, but Stage 3 must preserve a deterministic bounded fallback for queries where FTS normalization produces an empty/weak representation or would discard materially important literal structure.
+
+The fallback is intended for cases such as:
+
+- quoted phrases,
+- rare proper names,
+- dates and numbers,
+- acronyms/codes,
+- uncommon identifier-like tokens.
+
+The fallback must remain inside the accepted PostgreSQL V1 storage boundary and selected-corpus/eligibility predicates. Exact tokenization, query operators, and indexes are implementation/evaluation choices; the fallback is not permission for broad autonomous alias expansion.
 
 ### Document-level diversity
 
@@ -98,10 +120,12 @@ Reranking should be reconsidered when evaluation shows that relevant evidence co
 
 - Dense retrieval preserves semantic/paraphrase recall.
 - Lexical retrieval preserves exact phrases, rare names, numbers, dates, and uncommon historical entities.
+- The bounded literal fallback protects important lexical cases that FTS normalization handles poorly without introducing a new search service.
 - Structured temporal retrieval improves recall for exact-date/timeline-style questions.
 - RRF avoids pretending heterogeneous raw scores are directly comparable.
 - Same-chunk consolidation prevents duplicate route hits from appearing as multiple evidence candidates.
 - Always-on dense + lexical behavior is deterministic and easy to evaluate.
+- Temporal intent cannot be silently weakened by an omitted/unknown profile.
 - A no-reranker baseline reduces latency, cost, complexity, and another failure mode.
 - Route-specific failures can degrade gracefully rather than failing all retrieval.
 
@@ -109,6 +133,7 @@ Reranking should be reconsidered when evaluation shows that relevant evidence co
 
 - Every normal local query pays both dense and lexical query cost.
 - Temporal profiles may execute three retrieval routes.
+- Bounded lexical fallback adds another query path that must be benchmarked and bounded.
 - RRF ignores useful absolute-score information unless it is separately inspected downstream.
 - Bounded temporal post-adjustment introduces additional tuning parameters.
 - The baseline may eventually need reranking if fusion ordering is insufficient.
@@ -132,6 +157,10 @@ Deferred. It may reduce retrieval cost later, but it introduces another classifi
 
 Rejected for V1 because lexical signals are valuable even when dense retrieval succeeds.
 
+### PostgreSQL FTS with no literal fallback contract
+
+Rejected because historical retrieval depends disproportionately on rare names, dates, codes, quoted phrases, and other literal forms that must remain testable even when FTS normalization weakens them.
+
 ### Raw-score weighted sum
 
 Rejected initially because dense, lexical, and temporal score distributions are heterogeneous and not safely comparable without calibration.
@@ -150,6 +179,7 @@ Revisit this ADR if:
 
 - always-on dense + lexical execution becomes a material latency/cost problem,
 - evaluation shows one route consistently harms retrieval quality,
+- the literal lexical fallback is too costly or insufficient,
 - RRF materially underperforms a calibrated/learned fusion method,
 - relevant evidence is usually retrieved but poorly ordered inside the fused pool,
 - temporal post-fusion adjustment proves unnecessary or destabilizing,
@@ -176,3 +206,4 @@ Revisit this ADR if:
 - `docs/architecture/decisions/ADR-002-ingestion-identity-versioning-publication.md`
 - `docs/architecture/decisions/ADR-003-temporal-evidence-representation.md`
 - `docs/architecture/decisions/ADR-004-v1-persistence-search-storage.md`
+- `docs/architecture/decisions/ADR-008-retrieval-eligibility-consistency-cutover-policy.md`
