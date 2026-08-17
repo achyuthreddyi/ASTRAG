@@ -6,7 +6,7 @@ This document describes the current accepted end-to-end architecture of ASTRAG a
 
 It contains only architecture accepted across stages. Stage-specific implementation details belong in `docs/stages/`, and significant architecture choices belong in `docs/architecture/decisions/`.
 
-Stage 1 defines the global behavioral contract. Stage 2 defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Stage 3 defines the accepted deterministic local retrieval architecture, temporal retrieval semantics, query-understanding boundary, and concurrent eligibility/cutover policy. Stage 4 defines the accepted bounded orchestration execution model, immutable evidence policy, provider-neutral web retrieval boundary, and Stage 4 → Stage 5 evidence-gathering contract. Context assembly, generation, and production serving details remain owned by later stages.
+Stage 1 defines the global behavioral contract. Stage 2 defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Stage 3 defines the accepted deterministic local retrieval architecture, temporal retrieval semantics, query-understanding boundary, and concurrent eligibility/cutover policy. Stage 4 defines the accepted bounded orchestration execution model, immutable evidence policy, provider-neutral web retrieval boundary, and Stage 4 → Stage 5 evidence-gathering contract. Stage 5 defines accepted evidence relationship/corroboration semantics, conflict/coverage/sufficiency semantics, provenance-safe context selection, and the Stage 5 → Stage 6 `GenerationContext` contract. Stage 6 owns prompt construction and grounded response generation.
 
 ---
 
@@ -39,7 +39,6 @@ Validated Search Publication
         ↓
 PostgreSQL Search Projections
         │
-        │ searchable local evidence
         ▼
 Client / Query Interface
         │
@@ -51,13 +50,11 @@ Client / Query Interface
 Query + Temporal Understanding
 (coordinated by Stage 4)
         │
-        │ structured retrieval intent
         ▼
 Agent / Orchestration
         │
         │ immutable EvidencePolicy
         │ bounded adaptive execution
-        │
         ├───────────────┐
         ▼               ▼
 Local Corpus         Web Retrieval
@@ -68,14 +65,21 @@ Retrieval            (when Web ON)
                 ▼
      EvidenceGatheringResult
                 │
-                │ provenance + run lineage
+                │ provenance + causal run lineage
                 │ temporal metadata
                 │ failures/degradation
                 ▼
          Context Assembly
                 │
+                │ relationship/corroboration semantics
+                │ conflict + coverage + sufficiency
+                │ provenance-safe context selection
+                ▼
+        GenerationContext
+                │
                 ▼
        Grounded Generation
+       (prompt owned by Stage 6)
                 │
                 ▼
 Answer + Citations + Conflict / Uncertainty Disclosure
@@ -116,6 +120,8 @@ The evidence boundary is authoritative.
 
 Stage 4 materializes this contract as an immutable request-scoped `EvidencePolicy`. Required source classes are independent bounded execution obligations. When both local and web are required and ready, concurrent initial execution is the preferred V1 scheduling strategy, but semantic correctness depends on executing both obligations rather than on a particular parallelism mechanism.
 
+Stage 5 revalidates the immutable evidence boundary as defense in depth. Revalidation can reject invalid evidence but cannot expand or reduce the permitted source set.
+
 ---
 
 ## Global Architectural Invariants
@@ -152,7 +158,7 @@ Local evidence remains attributable to:
 
 Web evidence retains external-source identity and acquisition/completeness semantics where applicable.
 
-Later stages must not discard provenance merely because doing so makes an intermediate interface tidier.
+Context selection or trimming may reduce text but must not erase or fabricate evidence identity, source spans, citation targets, or causal retrieval lineage.
 
 ### 4. Temporal Information Is First-Class
 
@@ -175,13 +181,17 @@ Stage 3 consumes structured query-time TemporalIntent values and uses temporal i
 
 Stage 4 preserves query-time temporal uncertainty through interpretation, reformulation, decomposition, and web constraints. Event/content time must not be silently translated into web publication-time filtering.
 
+Stage 5 preserves temporal origin, precision, certainty, multiple mentions, BCE/CE semantics, and unresolved state during selection and ordering. Approximate evidence must not become falsely exact merely to simplify chronological presentation.
+
 ### 5. Conflict Preservation
 
 Conflicting evidence must not be silently collapsed into a single claim.
 
-The system preserves enough independent source identity for later stages to expose conflicting claims and cite each side.
+Stage 4 may use a structured possible-conflict signal to justify bounded additional retrieval, but it does not perform final conflict grouping, choose a winner, suppress a side, or assign source authority.
 
-Stage 4 may use a structured possible-conflict signal to justify bounded additional retrieval, but it does not perform final conflict grouping, choose a winner, suppress a side, or assign source authority. Final conflict semantics belong to Stage 5.
+Under ADR-012, Stage 5 owns final material conflict grouping and distinguishes factual, quantitative, temporal, and interpretation divergence from compatible detail. Stage 5 does not nominate a winning claim in V1.
+
+Conflict is orthogonal to sufficiency. Evidence may be sufficient to answer by accurately presenting a disagreement.
 
 ### 6. Duplicate Evidence Must Not Inflate Corroboration
 
@@ -193,7 +203,17 @@ Stage 3 consolidates repeated retrieval hits for the same canonical `chunk_id` w
 
 Stage 4 may consolidate only exact/identity-level operational repetition while preserving all retrieval-run associations.
 
-Final semantic/source-level deduplication and corroboration semantics belong to Stage 5.
+Under ADR-011, Stage 5 owns final semantic/source relationship and corroboration semantics. It distinguishes:
+
+```text
+SAME_IDENTITY
+EXACT_DUPLICATE
+DERIVATIVE
+INDEPENDENT
+UNKNOWN_DEPENDENCE
+```
+
+Different documents, URLs, domains, corpora, or retrieval runs do not by themselves establish independent support. `UNKNOWN_DEPENDENCE` is not proof of derivation but is not counted as established independent corroboration.
 
 ### 7. Short-Term Conversation Is Interpretive Context
 
@@ -209,7 +229,7 @@ If one configured source fails while another returns usable evidence, ASTRAG may
 
 Successful retrieval with no candidates/evidence must remain distinguishable from retrieval-system failure.
 
-Stage 4 preserves successful candidates, source-specific failure/degradation metadata, and first-class required-source execution status. Completion of orchestration is separate from source success and from final answerability.
+Stage 4 preserves successful candidates, source-specific failure/degradation metadata, and first-class required-source execution status. Stage 5 preserves these statuses in `GenerationContext` independently from whether that source contributes selected context.
 
 ### 9. Traceability and Evaluation
 
@@ -226,11 +246,19 @@ The architecture must make it possible to observe at least:
 - retrieval-run kind and causal lineage,
 - query transformations/decomposition lineage,
 - retrieved evidence/provenance,
-- web acquisition/completeness state where applicable,
+- web acquisition/completeness state,
 - eligibility rejects/state changes,
 - retrieval failures/degradation,
 - required-source execution status,
 - orchestration budget consumption and stop reason,
+- Stage 5 candidate rejection reasons,
+- evidence relationship/dependency groups,
+- corroboration decisions,
+- conflict groups,
+- coverage mapping,
+- selection/drop decisions,
+- token allocation and final context order,
+- sufficiency assessment,
 - context presented to generation,
 - final citations,
 - ingestion/publication lineage,
@@ -319,8 +347,6 @@ Immediately before output, Stage 3 performs authoritative current-state validati
 
 If a global SearchRepresentationGeneration cutover invalidates the request search space, Stage 3 may perform a bounded transparent restart under the new generation. If a coherent restart cannot complete, it fails closed rather than returning mixed/stale evidence.
 
-Correctness does not depend on synchronous derived-index cleanup.
-
 ### 17. Request-Scoped EvidencePolicy Is Immutable
 
 Under ADR-009, Stage 4 derives one request-scoped `EvidencePolicy` from selected corpora and the web setting.
@@ -364,7 +390,7 @@ Retrieval runs distinguish mandatory initial execution, operational retries, ref
 
 Stage 5 must not infer orchestration trajectory from query text or execution order.
 
-Orchestration completion is distinct from source retrieval outcome and from final evidence sufficiency/answerability.
+Orchestration completion is distinct from source retrieval outcome, Stage 5 assembly status, and final evidence sufficiency.
 
 ### 21. Web Retrieval Is Provider-Neutral and Grounding-Capable
 
@@ -380,15 +406,111 @@ Provider-specific schemas/details remain below the logical contract. Event/conte
 
 Local and web evidence are data-plane inputs.
 
-Retrieved content cannot modify EvidencePolicy, source permissions, orchestration budgets, legal transitions, tool permissions, or system/control instructions.
+Retrieved content cannot modify EvidencePolicy, source permissions, orchestration budgets, legal transitions, tool permissions, system/control instructions, or generation-control metadata.
 
-Stage 9 adds defense in depth, but the data/control separation is already an accepted Stage 4 architectural boundary.
+Stage 5 preserves this separation while assembling `GenerationContext`; Stage 9 adds defense in depth later.
 
 ### 23. V1 Runtime State Is Ephemeral; Structured Trace State Survives
 
 Stage 4 runtime control state exists for the bounded request lifetime and does not require durable resume-from-checkpoint semantics in V1.
 
 Append-oriented structured trace information must survive sufficiently for Stage 7 evaluation and Stage 8 observability/debugging. Exact trace backend and retention are later implementation/production decisions.
+
+### 24. Stage 5 Owns Final Evidence Relationship and Corroboration Semantics
+
+Under ADR-011, Stage 5 is the final boundary for semantic/source-level duplicate and dependence analysis.
+
+Exact/derivative evidence may use a representative text plus alternate provenance to reduce token duplication without erasing source history. Raw source/evidence count is never a substitute for independent support.
+
+V1 does not introduce numeric corroboration confidence, source-authority scores, trusted-domain truth ranking, or majority-vote truth selection.
+
+### 25. Stage 5 Owns Material Conflict, Coverage, and Sufficiency
+
+Under ADR-012, Stage 5 owns:
+
+- final material conflict grouping,
+- semantic question/subquestion coverage,
+- supported/partially supported/unsupported aspect classification,
+- final evidence sufficiency.
+
+Overall sufficiency states are:
+
+```text
+SUFFICIENT
+PARTIALLY_SUFFICIENT
+INSUFFICIENT
+```
+
+Sufficiency is semantic rather than evidence-count based. Source failure/degradation remains separate from answerability.
+
+### 26. Assembly Status Is Distinct From Evidence Sufficiency
+
+Stage 5 conceptually returns:
+
+```text
+ContextAssemblyResult
+- assembly_status
+- generation_context?
+- failure?
+```
+
+with:
+
+```text
+ASSEMBLED
+NOT_APPLICABLE
+FAILED
+```
+
+A valid empty evidence set may be `ASSEMBLED + INSUFFICIENT`; malformed provenance or inability to construct safe context may be `FAILED`; rejected/clarification-required upstream states are `NOT_APPLICABLE` for normal evidence generation.
+
+### 27. GenerationContext Is the Stage 5 → Stage 6 Contract
+
+Under ADR-013, Stage 5 emits a structured `GenerationContext` containing the material semantics required by generation, including:
+
+```text
+query identity + original/resolved query
+EvidencePolicy
+sufficiency assessment
+selected ContextItems with real provenance
+relationship/dependency metadata
+conflict groups
+coverage units
+timeline structure when useful
+required-source statuses
+source failures/degradation
+interpretation assumptions
+assembly metadata
+```
+
+Stage 6 should not require the complete raw Stage 4 retrieval-run graph for normal generation. Selected context items preserve stable lineage references; full traces remain available to evaluation/observability.
+
+### 28. Stage 5 Does Not Initiate New Retrieval in V1
+
+Context assembly does not fetch adjacent chunks or acquire new datastore/web evidence after Stage 4 completion.
+
+Already-gathered parent/neighbor content may be used only if it is already part of the accepted Stage 4 evidence contract.
+
+Changing this boundary requires explicit cross-stage architecture review.
+
+### 29. V1 Context Compression Is Extractive and Provenance-Preserving
+
+Stage 5 may use exact passage selection/extractive trimming with explicit full-versus-extracted extent semantics and source-span lineage.
+
+V1 does not use generative/LLM evidence summarization as source evidence. Any future generated compression must be explicitly marked as derived text and preserve compression/provenance lineage through a reviewed architecture change.
+
+### 30. Stage 6 Owns Generation Prompt Construction
+
+The accepted boundary is:
+
+```text
+Stage 5: EvidenceGatheringResult → structured GenerationContext
+Stage 6: system/generation instructions + GenerationContext → grounded answer
+```
+
+Stage 6 owns system/generation prompt construction, grounding instructions, response-format instructions, final citation-rendering instructions, natural-language answer generation, and user-facing conflict/uncertainty/partial-answer wording.
+
+Stage 5 does not own final prompt construction or user-facing prose.
 
 ---
 
@@ -466,19 +588,9 @@ Unknown profile values are invalid requests. When a profile is omitted, Stage 3 
 
 ### Retrieval routes
 
-Normal V1 local retrieval executes:
+Normal V1 local retrieval executes dense + lexical retrieval, with a structured temporal route when intent/profile requires it.
 
-```text
-Dense Retrieval
-+ Lexical Retrieval
-+ Temporal Retrieval when structured temporal intent/profile requires it
-```
-
-Dense retrieval uses the captured active SearchRepresentationGeneration.
-
-Lexical retrieval uses PostgreSQL FTS plus the bounded literal fallback when necessary.
-
-Temporal retrieval searches structured TemporalMentions while preserving multiple mentions, source/content origin, semantic role, precision, certainty, BCE/CE, ranges, and unresolved state.
+Dense retrieval uses the captured active SearchRepresentationGeneration. Lexical retrieval uses PostgreSQL FTS plus the bounded literal fallback when necessary. Temporal retrieval searches structured TemporalMentions while preserving multiple mentions, source/content origin, semantic role, precision, certainty, BCE/CE, ranges, and unresolved state.
 
 ### Fusion and ranking
 
@@ -486,31 +598,15 @@ Candidate lists are consolidated by canonical `chunk_id` before fusion.
 
 V1 uses RRF because route score domains are heterogeneous. The RRF constant and candidate budgets are configuration, not architectural constants.
 
-Strong temporal profiles may apply a bounded deterministic post-RRF temporal adjustment.
+Strong temporal profiles may apply a bounded deterministic post-RRF temporal adjustment. A mild document-level diversity penalty may be used as a retrieval-quality safeguard, but final context diversity remains Stage 5.
 
-A mild document-level diversity penalty may be used as a retrieval-quality safeguard, but final context diversity remains Stage 5.
+No learned reranker is present in the initial V1 baseline. Reranking is benchmark-triggered.
 
-No learned reranker is present in the initial V1 baseline. Reranking is reconsidered when evaluation shows relevant evidence exists in the fused pool but is consistently ordered below Stage 5's practical cutoff.
+### Retrieval result/outcome contract
 
-### Retrieval result contract
+Stage 3 returns provenance-complete canonical evidence candidates with authoritative source text, identity, provenance/location where available, TemporalMentions, duplicate-lineage signals, route/rank metadata, and capability/degradation state.
 
-Stage 3 returns provenance-complete canonical evidence candidates containing enough identity and retrieval metadata for later stages, including:
-
-- corpus/document/version/ProcessingGeneration/SearchRepresentationGeneration/chunk identity,
-- authoritative `source_text`,
-- provenance/location metadata where available,
-- TemporalMentions,
-- duplicate-lineage signals,
-- route signals/ranks,
-- temporal match information,
-- fusion/final Stage 3 rank,
-- capability/degradation state.
-
-Derived embedding/contextualized text never replaces canonical source evidence.
-
-### Retrieval outcome contract
-
-Stage 3 distinguishes at least:
+Stage 3 distinguishes:
 
 ```text
 SUCCESS_WITH_CANDIDATES
@@ -561,8 +657,6 @@ Operational retries repeat the same logical request after retryable failures. Ev
 - failures/degradation,
 - stop reason.
 
-Stage 5 owns final semantic/source deduplication, corroboration, conflict grouping, source grouping, context diversity/ordering, token budgeting, sufficiency, and context selection.
-
 ### Web evidence
 
 The Web Retrieval capability is provider-neutral. It returns grounding-capable evidence with external identity, temporal metadata where known, and acquisition/completeness state. Provider-returned extracted or partial text may be valid grounding evidence; inadequate snippets are not silently promoted.
@@ -570,6 +664,34 @@ The Web Retrieval capability is provider-neutral. It returns grounding-capable e
 ### State and framework boundary
 
 Runtime state is ephemeral for bounded V1 interactive requests. Structured traces survive sufficiently for evaluation/debugging. Durable workflow checkpointing and a mandatory orchestration framework are not V1 requirements.
+
+---
+
+## Accepted Stage 5 Context Assembly Architecture
+
+### Relationship and corroboration
+
+Stage 5 uses the ADR-011 relationship/dependence model. Repeated retrieval, exact duplicates, and derivative families do not inflate independent support. Unknown dependence remains explicit rather than being promoted to independence.
+
+### Conflict, coverage, and sufficiency
+
+Stage 5 uses ADR-012 to group material conflicts, map material question coverage, preserve supported/unsupported aspects, and classify overall evidence sufficiency as sufficient, partially sufficient, or insufficient.
+
+No source-authority or winner-selection policy is introduced.
+
+### Context selection and temporal organization
+
+Stage 5 performs a final utility reassessment across heterogeneous Stage 4 candidates, applies soft diversity without quotas, preserves material conflict sides and coverage under token budget, and orders context according to query semantics rather than universally by date.
+
+Temporal uncertainty and unresolved placement remain explicit.
+
+### Compression and retrieval boundary
+
+V1 allows provenance-preserving extractive trimming only. Stage 5 does not initiate new retrieval or adjacent-chunk fetching after Stage 4 completion.
+
+### Stage 5 → Stage 6 handoff
+
+Stage 5 emits `GenerationContext` under ADR-013. Required-source statuses, failures/degradation, conflicts, coverage, sufficiency, relationship/dependence semantics, selected provenance-complete evidence, and interpretation assumptions remain available to Stage 6 without requiring the full Stage 4 run graph.
 
 ---
 
@@ -621,7 +743,7 @@ PostgreSQL search indexes remain derived projections rather than canonical evide
    - coordinates typed local/web execution,
    - owns bounded incremental planning, operational retries, evidence-seeking adaptations, budgets, and stopping,
    - preserves causal run/source/failure lineage in EvidenceGatheringResult,
-   - never owns final evidence sufficiency, semantic corroboration/deduplication, or conflict resolution.
+   - never owns final evidence sufficiency, semantic corroboration/deduplication, or final conflict grouping.
 
 6. **Local Corpus Retrieval (Stage 3)**
    - searches only selected executable corpora,
@@ -638,24 +760,28 @@ PostgreSQL search indexes remain derived projections rather than canonical evide
    - distinguishes event/content temporal constraints from source/publication time,
    - fails independently from local retrieval where practical.
 
-8. **Evidence Pipeline / Context Assembly (Stage 5)**
-   - consumes EvidenceGatheringResult without depending on Stage 4 state-machine internals,
-   - combines permitted local/web evidence,
-   - performs final semantic/source deduplication and corroboration handling,
-   - groups/preserves conflicts,
-   - assesses evidence sufficiency,
-   - applies context diversity/source grouping/ordering/token budgets,
-   - selects final context for generation.
+8. **Context Assembly (Stage 5)**
+   - consumes `EvidenceGatheringResult`,
+   - revalidates legal evidence/provenance,
+   - owns final relationship/deduplication/corroboration semantics,
+   - groups material conflicts,
+   - maps question coverage and final evidence sufficiency,
+   - applies final utility/diversity/temporal ordering/token budgeting,
+   - performs provenance-preserving extractive selection,
+   - emits structured `GenerationContext`,
+   - performs no new retrieval in V1.
 
 9. **Grounded Generation (Stage 6)**
-   - answers from retrieved/assembled evidence,
-   - exposes conflicts/uncertainty,
-   - renders citations,
-   - acknowledges insufficient evidence.
+   - consumes `GenerationContext`,
+   - constructs system/generation prompts and grounding instructions,
+   - generates supported full/partial/insufficient responses,
+   - exposes conflicts/uncertainty and retrieval limitations,
+   - renders final citations,
+   - owns user-facing response formatting.
 
 10. **Evaluation + Observability**
    - measures component/end-to-end quality,
-   - traces source configuration, ingestion publication, retrieval state/ranking, and structured orchestration execution,
+   - traces source configuration, ingestion publication, retrieval state/ranking, orchestration execution, context-assembly decisions, and generation outputs,
    - tracks latency/cost.
 
 These are logical boundaries. Service/process boundaries, frameworks, providers, and production deployment topology remain undecided except where an accepted ADR states otherwise.
@@ -691,8 +817,9 @@ Query + Selected Corpora + Web OFF
 → bounded retrieval adjustments
 → final authoritative current-state validation/backfill
 → EvidenceGatheringResult
-→ Stage 5 context/sufficiency processing
-→ Grounded Generation
+→ Stage 5 relationship/conflict/coverage/sufficiency/context assembly
+→ GenerationContext
+→ Stage 6 prompt construction + grounded generation
 → Answer + Local Citations
 ```
 
@@ -703,11 +830,11 @@ Query + Selected Corpora + Web ON
 → Construct immutable EvidencePolicy (local + web required)
 → Query + Temporal Understanding
 → Stage 4 executes both mandatory source obligations
-   (concurrently when practical)
 → optional bounded retry/reformulation/decomposition/recovery
 → EvidenceGatheringResult with required-source + per-run lineage
-→ Stage 5 evidence combination/conflict/deduplication/sufficiency/context selection
-→ Grounded Generation
+→ Stage 5 relationship/conflict/coverage/sufficiency/context assembly
+→ GenerationContext with selected evidence + source failure/degradation state
+→ Stage 6 prompt construction + grounded generation
 → Answer + Local/Web Citations
 ```
 
@@ -721,7 +848,8 @@ Query + Web ON + No Corpus
 → grounding-capable web evidence + acquisition/provenance metadata
 → EvidenceGatheringResult
 → Stage 5 evidence assessment/context assembly
-→ Grounded Generation
+→ GenerationContext
+→ Stage 6 prompt construction + grounded generation
 → Answer + Web Citations
 ```
 
@@ -744,53 +872,46 @@ Current accepted assumptions:
 - no ANN requirement initially,
 - no learned reranker initially,
 - bounded interactive Stage 4 requests with ephemeral runtime state,
-- no mandatory durable orchestration workflow engine in V1.
+- no mandatory durable orchestration workflow engine in V1,
+- bounded Stage 5 candidate sets,
+- no generative evidence summarization in Stage 5 V1,
+- no Stage 5 new-retrieval/adjacent-fetch behavior in V1.
 
 These assumptions constrain later designs without requiring premature distributed infrastructure.
 
 ---
 
-## Implementation-Time Retrieval Validation Requirements
+## Implementation-Time Validation Requirements
 
-Stage 3 implementation must validate at least:
+### Stage 3
 
-- Recall@K, MRR, nDCG@K, Hit Rate@K and Precision@K where useful,
-- temporal retrieval correctness/Recall@K,
-- dense-only vs lexical-only vs hybrid vs hybrid+temporal ablations,
-- zero corpus-boundary violations,
-- zero stale/ineligible evidence leakage,
-- correct provenance/lineage,
-- exact-date/range/before/after/approximate/BCE-CE/recurring-day cases,
-- rare names, numbers, quoted phrases, acronyms/codes, and lexical fallback cases,
-- `TEMPORAL_READY + 0 mentions` versus `TEMPORAL_DEGRADED`,
-- deletion/publication/ProcessingGeneration/corpus-move/SRG cutover races,
-- no mixed SearchRepresentationGeneration output,
-- deterministic stable ordering for fixed request/state/config,
-- exact-vector/FTS/fallback/temporal/final-eligibility latency at representative V1 sizes.
+Stage 3 implementation must validate retrieval quality, temporal correctness, corpus/eligibility isolation, provenance/lineage, cutover races, deterministic ordering under fixed state/config, and representative latency. Exact candidate budgets/RRF constants/temporal weights remain configuration.
 
-Exact numeric candidate budgets, RRF constants, temporal-adjustment weights, diversity penalties, and latency SLOs remain implementation/evaluation configuration.
+### Stage 4
 
-### Stage 4 implementation validation
+Stage 4 implementation must validate zero source-policy violations, correct mandatory-source statuses, interpretation/clarification behavior, intent-preserving transformations, bounded execution/termination, graceful partial success, malformed tool-response handling, grounding-capable web evidence/completeness state, structured causal trace completeness, latency/token/search cost, and no final conflict/sufficiency adjudication leakage into Stage 4.
 
-Stage 4 implementation must validate at least:
+### Stage 5
 
-- zero source-policy violations and correct mandatory-source execution status,
-- query/reference/temporal interpretation correctness,
-- ambiguity clarification correctness,
-- reformulation intent preservation and transformation lineage,
-- bounded decomposition behavior,
-- correct run-kind/parent/trigger lineage,
-- operational retry versus evidence-seeking classification,
-- budget/deadline enforcement and termination,
-- graceful partial success and failure/no-results distinction,
-- malformed tool-response handling,
-- grounding-capable web evidence and explicit partial/full/unknown completeness state,
-- possible-conflict follow-up without final conflict adjudication,
-- structured trace completeness,
-- unnecessary tool-call rate,
-- latency, token usage, and external-search cost.
+Stage 5 implementation must validate at least:
 
-Exact Stage 4 attempt/rewrite/subquery ceilings, timeout/backoff values, model/provider selection, and concrete web provider remain implementation/evaluation configuration.
+- zero source-boundary violations,
+- effectively complete selected-context provenance retention,
+- false independent-corroboration rate,
+- exact/derivative/unknown-dependence handling,
+- conflict preservation and materiality classification,
+- coverage and sufficiency classification accuracy,
+- supported partial-answer guidance,
+- context precision and coverage/recall,
+- critical-evidence omission rate,
+- duplicate-token reduction without provenance loss,
+- temporal ordering/uncertainty correctness,
+- correct required-source failure/degradation propagation,
+- policy-violating/unsupported evidence exclusion,
+- context budget efficiency and safe budget-exhaustion behavior,
+- assembly latency and cost where applicable.
+
+Exact Stage 5 token budgets, ranking weights, relationship/conflict/coverage classifiers, and model assistance choices remain implementation/evaluation configuration.
 
 ---
 
@@ -814,14 +935,17 @@ The following remain owned by later implementation/stages or benchmark-triggered
 - concrete web-search/content-acquisition provider integration,
 - exact orchestration attempt/rewrite/subquery ceilings,
 - exact trace persistence backend/retention,
-- context token budgeting,
-- prompt architecture,
+- exact Stage 5 token budgets and selection weights,
+- concrete derivative/conflict/coverage classification mechanisms,
+- learned/model-based Stage 5 reranking pending evaluation,
+- generative evidence compression unless separately reviewed,
+- source-authority/trust ranking,
 - generation model/provider,
+- concrete Stage 6 prompt architecture details within the accepted Stage 6 ownership boundary,
 - exact external API schema,
 - caching,
 - artifact retention/garbage collection,
 - production queue/topology,
-- source-quality ranking,
 - production/multi-user debug-text retention policy.
 
 When one of these materially changes global architecture, the owning stage must escalate it and create/revise an ADR where appropriate.
@@ -840,6 +964,9 @@ When one of these materially changes global architecture, the owning stage must 
 - `ADR-008-retrieval-eligibility-consistency-cutover-policy.md` — local retrieval captures coherent search state, performs output-time authoritative validation, and fails closed/restarts boundedly across incompatible cutovers.
 - `ADR-009-v1-bounded-orchestration-execution-model.md` — Stage 4 uses a bounded adaptive application state machine with deterministic control, immutable EvidencePolicy, explicit budgets/stopping, and bounded semantic reasoning.
 - `ADR-010-evidence-gathering-and-web-retrieval-contract.md` — Stage 4 emits EvidenceGatheringResult with required-source/run lineage and typed provenance through a provider-neutral grounding-capable web boundary.
+- `ADR-011-evidence-relationship-and-corroboration-semantics.md` — Stage 5 distinguishes identity, exact duplicate, derivative, independent, and unknown dependence so copied/repeated evidence cannot inflate corroboration.
+- `ADR-012-conflict-coverage-and-sufficiency-model.md` — Stage 5 owns material conflict grouping, semantic coverage, and semantic sufficiency while keeping conflict orthogonal to answerability and source authority out of V1.
+- `ADR-013-generation-context-and-stage-5-stage-6-boundary.md` — Stage 5 emits structured GenerationContext; Stage 6 owns generation prompt construction, grounded answer synthesis, and final citation rendering.
 
 ---
 
@@ -848,10 +975,10 @@ When one of these materially changes global architecture, the owning stage must 
 - **Stage 1** defines the behavioral contract and global evidence invariants.
 - **Stage 2** owns ingestion, corpus/document lifecycle, immutable versions/generations, provenance capture, temporal metadata extraction, search representation generation, publication, reprocessing, and deletion.
 - **Stage 3** owns deterministic query-time local retrieval, selected-corpus enforcement, authoritative eligibility/cutover handling, dense/lexical/temporal candidate retrieval, same-chunk consolidation, RRF/bounded retrieval ranking, and retrieval-specific failures/degradation.
-- **Stage 4** owns Query + Temporal Understanding coordination, immutable EvidencePolicy enforcement, bounded adaptive orchestration, independent mandatory local/web execution, provider-neutral web retrieval coordination, bounded replanning/reformulation/decomposition, budgets/stopping, structured traces, and the EvidenceGatheringResult handoff. It does not own final evidence sufficiency, semantic deduplication/corroboration, or conflict resolution.
-- **Stage 5** owns final evidence combination, sufficiency assessment, semantic deduplication/corroboration, conflict grouping, context diversity/source grouping, chronological/context ordering, token budgeting, and final context selection.
-- **Stage 6** owns grounded response generation and citation rendering.
-- **Stage 7** formalizes evaluation including accepted Stage 3 retrieval/race/temporal benchmarks and Stage 4 policy/trajectory/rewrite/retry/stopping/latency/cost evaluation.
-- **Stage 8** formalizes end-to-end tracing and operational observability including Stage 3 state/ranking traces and Stage 4 structured orchestration traces.
-- **Stage 9** adds reliability/guardrails, including stale evidence, timeout, loop/budget enforcement, tool-contract validation, and retrieved-content/prompt-injection protections, without weakening evidence boundaries.
-- **Stage 10** defines production serving/scaling and may evolve worker/search/orchestration deployment topology, durable workflows, queues, and horizontal scaling while preserving accepted semantic boundaries.
+- **Stage 4** owns Query + Temporal Understanding coordination, immutable EvidencePolicy enforcement, bounded adaptive orchestration, independent mandatory local/web execution, provider-neutral web retrieval coordination, bounded replanning/reformulation/decomposition, budgets/stopping, structured traces, and the EvidenceGatheringResult handoff. It does not own final evidence sufficiency, semantic deduplication/corroboration, or final conflict grouping.
+- **Stage 5** owns final evidence-policy/provenance revalidation, semantic relationship/deduplication/corroboration, material conflict grouping, semantic coverage, final evidence sufficiency, context diversity/ordering/token budgeting, extractive selection, and the `GenerationContext` handoff. It does not perform new retrieval in V1 or construct the final generation prompt.
+- **Stage 6** owns system/generation prompt construction, grounded response generation, user-facing conflict/uncertainty/partial-answer wording, final response formatting, and citation rendering from `GenerationContext`.
+- **Stage 7** formalizes evaluation including accepted Stage 3 retrieval/race/temporal benchmarks, Stage 4 policy/trajectory/rewrite/retry/stopping evaluation, and Stage 5 relationship/conflict/coverage/sufficiency/context-selection evaluation.
+- **Stage 8** formalizes end-to-end tracing and operational observability including Stage 3 state/ranking traces, Stage 4 structured orchestration traces, and Stage 5 structured assembly decisions.
+- **Stage 9** adds reliability/guardrails, including stale evidence, timeout, loop/budget enforcement, tool-contract validation, and retrieved-content/prompt-injection protections, without weakening evidence boundaries or data/control separation.
+- **Stage 10** defines production serving/scaling and may evolve worker/search/orchestration/context/generation deployment topology, durable workflows, queues, and horizontal scaling while preserving accepted semantic boundaries.
