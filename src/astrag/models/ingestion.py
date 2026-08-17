@@ -104,6 +104,11 @@ class IngestionRun(Base):
     # The pipeline step in progress, as plain text: the fourteen conceptual
     # states in §19 are stages, not an enum. A retry resumes from this stage.
     stage: Mapped[str] = mapped_column(Text, nullable=False)
+    # The normalized document this attempt produced. Recorded on the run rather
+    # than the version because it belongs to a (version, processing generation)
+    # pair: a later attempt under the same generation reuses it instead of
+    # reparsing, and one under a new generation must not.
+    normalized_artifact_key: Mapped[str | None] = mapped_column(Text)
     heartbeat_at: Mapped[datetime] = _timestamp()
     started_at: Mapped[datetime] = _timestamp()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

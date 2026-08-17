@@ -4,8 +4,8 @@ One unit of work: claim a due job, open an attempt, run the stages in order
 committing after each, and settle the version. Nothing here holds state across
 a crash — the claimed job and its run row are the whole recovery record (§22).
 
-`STAGES` is empty until rung 6 appends the parser; the executor is exercised by
-tests that pass their own stages, which is also how a caller overrides them.
+The stage list is passed in rather than imported: the executor knows how to run
+and checkpoint stages, and `astrag.ingest.pipeline` decides what they are.
 """
 
 import logging
@@ -49,14 +49,11 @@ class StageContext:
 
 Stage = tuple[str, Callable[[StageContext], None]]
 
-STAGES: list[Stage] = []
-
 
 def run_once(
-    db: Session, store: ArtifactStore, stages: Sequence[Stage] | None = None
+    db: Session, store: ArtifactStore, stages: Sequence[Stage]
 ) -> IngestionJob | None:
     """Process one job. Returns None when the queue has nothing due."""
-    stages = STAGES if stages is None else stages
     job = _claim(db)
     if job is None:
         return None

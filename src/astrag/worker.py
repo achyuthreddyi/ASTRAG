@@ -9,6 +9,7 @@ import signal
 import time
 
 from astrag.ingest.executor import run_once
+from astrag.ingest.pipeline import STAGES
 from astrag.settings import get_settings
 from astrag.storage.artifacts import get_artifact_store
 from astrag.storage.database import get_sessionmaker
@@ -35,7 +36,7 @@ def main() -> None:
     log.info("worker started, polling every %ss", settings.poll_interval_seconds)
     while running:
         with sessions() as db:
-            job = run_once(db, store)
+            job = run_once(db, store, STAGES)
         # Polling, not LISTEN/NOTIFY: one query per second against an indexed
         # partial predicate costs nothing, and a broker is stage 10's problem.
         if job is None and running:
