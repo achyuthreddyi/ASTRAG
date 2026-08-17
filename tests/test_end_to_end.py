@@ -8,6 +8,7 @@ The per-stage tests each check one stage. This one checks that they compose.
 
 import uuid
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -80,6 +81,23 @@ def test_an_uploaded_document_becomes_searchable_evidence(client, db, store, upl
     status = client.get(f"/documents/{body['document_id']}").json()
     assert (status["status"], status["current_stage"]) == (VersionStatus.READY, "publish")
     assert status["active_version_id"] == body["document_version_id"]
+
+
+def test_a_pdf_carries_its_page_provenance_all_the_way_to_the_chunks(
+    client, db, store, corpus_id
+):
+    """§11: the page a claim came from is evidence, and only the parser knows it."""
+    source = (Path(__file__).parent / "golden" / "rome.pdf").read_bytes()
+    body = upload(client, corpus_id, source, "rome.pdf").json()
+
+    run_once(db, store, STAGES)
+
+    version = version_of(db, body)
+    chunks = chunks_of(db, version)
+    assert version.status == VersionStatus.READY
+    # One section per page here, so each chunk names exactly the page it quotes.
+    assert [(c.page_start, c.page_end) for c in chunks] == [(1, 1), (2, 2), (3, 3)]
+    assert {m.text for m in mentions_of(db, version)} >= {"509 BCE", "15 March 44 BCE"}
 
 
 def kill_worker_after(db, store, version, stages: int) -> None:

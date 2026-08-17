@@ -87,7 +87,7 @@ def test_unusable_input_fails_the_version_non_retryably(db, store, enqueued):
 
 
 def test_a_media_type_without_a_parser_fails_the_version(db, store, enqueued):
-    version = enqueued(media_type="application/pdf", filename="scan.pdf")
+    version = enqueued(media_type="application/zip", filename="archive.zip")
 
     run_once(db, store, STAGES)
 

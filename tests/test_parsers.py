@@ -7,9 +7,11 @@ in review. Regenerate deliberately with UPDATE_GOLDEN=1.
 
 import json
 import os
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from pypdf import PdfWriter
 
 from astrag.ingest.normalized import BlockType, NormalizedDocument
 from astrag.ingest.parsers import (
@@ -20,7 +22,7 @@ from astrag.ingest.parsers import (
 )
 
 GOLDEN = Path(__file__).parent / "golden"
-MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown"}
+MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown", ".pdf": "application/pdf"}
 
 
 @pytest.mark.parametrize("source", sorted(p for p in GOLDEN.iterdir() if p.suffix in MEDIA_TYPES), ids=lambda p: p.name)
@@ -41,7 +43,7 @@ def code_of(call) -> str:
 
 
 def test_unsupported_media_type_has_no_parser():
-    assert code_of(lambda: parser_for("application/pdf")) == "unsupported_media_type"
+    assert code_of(lambda: parser_for("image/png")) == "unsupported_media_type"
 
 
 @pytest.mark.parametrize("data", [b"", b"   \n\n  \n", b"tiny"])
@@ -112,3 +114,75 @@ def test_an_artifact_round_trips():
 
 def test_min_useful_chars_is_the_documented_floor():
     assert MIN_USEFUL_CHARS == 16
+
+
+def pdf(**pages) -> bytes:
+    """A PDF built from the golden one, since authoring text content by hand is
+    not what these tests are about."""
+    writer = PdfWriter(clone_from=GOLDEN / "rome.pdf")
+    for key, value in pages.items():
+        getattr(writer, key)(value)
+    buffer = BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+ROME_PDF = (GOLDEN / "rome.pdf").read_bytes()
+
+
+def test_pdf_blocks_carry_the_page_they_came_from():
+    """§11: page provenance is the one thing only a paginated format can give."""
+    document = parse(ROME_PDF, "application/pdf", "rome.pdf")
+
+    assert [b.page for b in document.blocks] == [1, 1, 2, 2, 3, 3]
+
+
+def test_pdf_running_headers_and_footers_are_removed_and_named():
+    document = parse(ROME_PDF, "application/pdf", "rome.pdf")
+
+    texts = [b.text for b in document.blocks]
+    assert "A History of Rome" not in texts  # the header on every page
+    assert not any(t.startswith("Page ") for t in texts)  # the numbered footer
+    # Removed, but not silently: the cleanup stays inspectable (§16).
+    assert document.warnings == [
+        "removed repeated line 'A History of Rome'",
+        "removed repeated line 'Page 1'",
+    ]
+
+
+def test_a_line_repeated_on_too_few_pages_is_kept():
+    """Two pages sharing a first line is a coincidence, not page furniture."""
+    writer = PdfWriter(clone_from=GOLDEN / "rome.pdf")
+    del writer.pages[2]
+    buffer = BytesIO()
+    writer.write(buffer)
+
+    document = parse(buffer.getvalue(), "application/pdf", "two.pdf")
+
+    assert "A History of Rome" in [b.text for b in document.blocks]
+
+
+def test_an_encrypted_pdf_fails_non_retryably():
+    assert code_of(
+        lambda: parse(pdf(encrypt="hunter2"), "application/pdf", "locked.pdf")
+    ) == "encrypted_document"
+
+
+def test_a_pdf_with_no_text_layer_is_reported_as_scanned():
+    """An image-only export is a different problem for the uploader than an
+    empty file, so it does not hide behind empty_extraction (§7)."""
+    writer = PdfWriter()
+    for _ in range(3):
+        writer.add_blank_page(width=200, height=200)
+    buffer = BytesIO()
+    writer.write(buffer)
+
+    assert code_of(
+        lambda: parse(buffer.getvalue(), "application/pdf", "scan.pdf")
+    ) == "scanned_or_image_only"
+
+
+def test_corrupt_pdf_bytes_fail_non_retryably():
+    assert code_of(
+        lambda: parse(b"%PDF-1.4\nnot really a pdf at all\n", "application/pdf", "x.pdf")
+    ) == "corrupt_document"

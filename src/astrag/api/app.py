@@ -33,8 +33,13 @@ from astrag.storage.database import get_db
 app = FastAPI(title="ASTRAG", version="0.1.0")
 
 # Extension, not the client-declared content type, which browsers get wrong.
-# PDF and DOCX join this registry in rungs 13 and 14.
-MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown", ".markdown": "text/markdown"}
+# DOCX joins this registry in rung 14.
+MEDIA_TYPES = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".pdf": "application/pdf",
+}
 
 IN_FLIGHT = (VersionStatus.PENDING, VersionStatus.RUNNING)
 

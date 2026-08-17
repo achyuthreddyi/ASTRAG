@@ -5,11 +5,11 @@ description = "Evidence-grounded agentic RAG with first-class temporal retrieval
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
-    "dateparser>=1.2",
     "fastapi>=0.115",
     "openai>=1.59",
     "pgvector>=0.3.6",
     "psycopg[binary]>=3.2",
+    "pypdf>=5.1",
     "pydantic-settings>=2.7",
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0",

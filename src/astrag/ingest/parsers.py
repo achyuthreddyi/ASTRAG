@@ -7,6 +7,10 @@ touching anything downstream, which is the entire point of the contract.
 
 import re
 from abc import ABC, abstractmethod
+from io import BytesIO
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from astrag.ingest.normalized import Block, BlockType, NormalizedDocument, block_id
 
@@ -195,7 +199,133 @@ def _is_table_divider(line: str) -> bool:
     return bool(re.fullmatch(r"\|[\s:|-]+\|", line.strip()))
 
 
-PARSERS: tuple[DocumentParser, ...] = (TextParser(), MarkdownParser())
+class PdfParser(DocumentParser):
+    """Text-extractable PDF, with page provenance (§11) and best-effort removal
+    of repeated headers and footers (§16).
+
+    pypdf rather than a layout engine: V1 needs ordered prose plus the page it
+    came from, and nothing downstream can use column geometry or font metrics.
+
+    ponytail: multi-column pages interleave, and tables arrive as paragraph text.
+    Swap in a layout-aware extractor when a corpus makes that cost real.
+    """
+
+    media_types = frozenset({"application/pdf"})
+
+    def parse(self, data: bytes, title: str) -> NormalizedDocument:
+        pages = _page_texts(data)
+        stripped, removed = _strip_running_lines(pages)
+
+        blocks: list[Block] = []
+        section: list[str] = []
+        for number, text in enumerate(stripped, start=1):
+            append_paragraphs(blocks, text, section, page=number)
+
+        empty = sum(1 for text in stripped if not text.strip())
+        if pages and empty == len(pages):
+            # Every page turned the page and gave us nothing: this is a scan or
+            # an image-only export, which is a different problem for the uploader
+            # than a corrupt file, so it gets its own non-retryable code (§7).
+            raise ParseError(
+                "scanned_or_image_only",
+                f"no text layer on any of {len(pages)} pages; OCR is out of V1 scope",
+            )
+
+        document = NormalizedDocument(title=title, blocks=blocks)
+        if empty:
+            document.warnings.append(
+                f"{empty} of {len(pages)} pages had no extractable text"
+            )
+        # Named, not silently dropped: cleanup has to stay inspectable (§16).
+        document.warnings += [f"removed repeated line {line!r}" for line in removed]
+        return document
+
+
+def _page_texts(data: bytes) -> list[str]:
+    """Extracted text per page, or a ParseError for bytes that cannot yield any."""
+    try:
+        reader = PdfReader(BytesIO(data))
+        if reader.is_encrypted:
+            # An empty password covers the common "restricted permissions" case;
+            # a real password is not something a retry will discover.
+            if reader.decrypt("") == 0:
+                raise ParseError(
+                    "encrypted_document", "the PDF is password-protected"
+                )
+        return [_page_text(page) for page in reader.pages]
+    except PdfReadError as error:
+        raise ParseError("corrupt_document", f"unreadable PDF: {error}") from error
+
+
+def _page_text(page) -> str:
+    """One page's text.
+
+    Layout mode, because it turns vertical gaps into blank lines — which is the
+    paragraph structure the blocker splits on. Plain mode drops them and every
+    page collapses into a single block. Runs of layout padding become one space;
+    horizontal geometry is not evidence.
+
+    A page that cannot be extracted at all is an empty page, not a failed
+    document: the aggregate checks in the caller decide whether the document as a
+    whole is usable (§7).
+    """
+    try:
+        text = page.extract_text(extraction_mode="layout") or ""
+    except Exception:  # noqa: BLE001 — any per-page failure means "no text here"
+        return ""
+    return _SPACES.sub(" ", text).replace("\r\n", "\n").replace("\r", "\n")
+
+
+_SPACES = re.compile(r"[ \t]{2,}")
+# Page furniture repeats; the numeral inside it does not.
+_DIGITS = re.compile(r"\d+")
+# Below this a "repeated" line is a coincidence, not a running header.
+MIN_PAGES_FOR_RUNNING_LINES = 3
+
+
+def _strip_running_lines(pages: list[str]) -> tuple[list[str], list[str]]:
+    """Drop first/last lines that recur across pages, comparing with digits
+    masked so `Page 3` and `Page 7` count as the same running footer.
+
+    Blank lines are left alone: they are the paragraph boundaries the blocker
+    splits on, so removing furniture must not also remove structure.
+    """
+    if len(pages) < MIN_PAGES_FOR_RUNNING_LINES:
+        return pages, []
+
+    lines = [text.split("\n") for text in pages]
+    edges = [_edges(page) for page in lines]
+    threshold = len(pages) / 2
+
+    running: set[str] = set()
+    removed: list[str] = []
+    for position in (0, -1):
+        counts: dict[str, list[str]] = {}
+        for page, edge in zip(lines, edges):
+            if edge:
+                text = page[edge[position]].strip()
+                counts.setdefault(_DIGITS.sub("#", text), []).append(text)
+        for key, seen in counts.items():
+            if len(seen) > threshold and key not in running:
+                running.add(key)
+                removed.append(seen[0])
+
+    def cleaned(page: list[str], edge: tuple[int, int] | None) -> str:
+        dropped = {
+            i for i in (edge or ()) if _DIGITS.sub("#", page[i].strip()) in running
+        }
+        return "\n".join(line for i, line in enumerate(page) if i not in dropped)
+
+    return [cleaned(page, edge) for page, edge in zip(lines, edges)], removed
+
+
+def _edges(page: list[str]) -> tuple[int, int] | None:
+    """Indices of the first and last non-blank line, where furniture lives."""
+    filled = [i for i, line in enumerate(page) if line.strip()]
+    return (filled[0], filled[-1]) if filled else None
+
+
+PARSERS: tuple[DocumentParser, ...] = (TextParser(), MarkdownParser(), PdfParser())
 
 
 def parser_for(media_type: str) -> DocumentParser:

@@ -1,0 +1,63 @@
+{
+  "title": "rome.pdf",
+  "blocks": [
+    {
+      "id": "b0000",
+      "type": "HEADING",
+      "text": "The Roman Republic",
+      "level": 1,
+      "section_path": [],
+      "page": 1
+    },
+    {
+      "id": "b0001",
+      "type": "PARAGRAPH",
+      "text": "The Republic was founded in 509 BCE after the overthrow of the monarchy.",
+      "level": 1,
+      "section_path": [
+        "The Roman Republic"
+      ],
+      "page": 1
+    },
+    {
+      "id": "b0002",
+      "type": "HEADING",
+      "text": "The Fall of the Republic",
+      "level": 1,
+      "section_path": [],
+      "page": 2
+    },
+    {
+      "id": "b0003",
+      "type": "PARAGRAPH",
+      "text": "Caesar was assassinated on 15 March 44 BCE.",
+      "level": 1,
+      "section_path": [
+        "The Fall of the Republic"
+      ],
+      "page": 2
+    },
+    {
+      "id": "b0004",
+      "type": "HEADING",
+      "text": "The Principate",
+      "level": 1,
+      "section_path": [],
+      "page": 3
+    },
+    {
+      "id": "b0005",
+      "type": "PARAGRAPH",
+      "text": "Augustus took power in 27 BCE, ending the Republic.",
+      "level": 1,
+      "section_path": [
+        "The Principate"
+      ],
+      "page": 3
+    }
+  ],
+  "warnings": [
+    "removed repeated line 'A History of Rome'",
+    "removed repeated line 'Page 1'"
+  ]
+}

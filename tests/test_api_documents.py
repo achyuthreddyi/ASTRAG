@@ -79,7 +79,7 @@ def test_unknown_corpus_is_not_found(client):
     assert upload(client, str(uuid.uuid4())).status_code == 404
 
 
-@pytest.mark.parametrize("name", ["scan.pdf", "notes.docx", "noextension"])
+@pytest.mark.parametrize("name", ["photo.png", "notes.docx", "noextension"])
 def test_unsupported_types_are_rejected(client, corpus_id, name):
     assert upload(client, corpus_id, b"content", name=name).status_code == 415
 
