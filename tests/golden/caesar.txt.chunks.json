@@ -1,0 +1,64 @@
+[
+  {
+    "ordinal": 0,
+    "source_text": "The Ides of March",
+    "contextualized_text": "caesar.txt > The Ides of March\n\nThe Ides of March",
+    "section_path": [
+      "The Ides of March"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0000",
+        "start": 0,
+        "end": 17
+      }
+    ],
+    "token_count": 5,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "27cccbf39734ba22e38c7d1fb9f663aeb560f56cd60ed46a61f6582be7c2c919"
+  },
+  {
+    "ordinal": 1,
+    "source_text": "On 15 March 44 BCE, Gaius Julius Caesar was killed in the Theatre of Pompey. The conspirators numbered roughly sixty men.",
+    "contextualized_text": "caesar.txt > The Ides of March\n\nOn 15 March 44 BCE, Gaius Julius Caesar was killed in the Theatre of Pompey. The conspirators numbered roughly sixty men.",
+    "section_path": [
+      "The Ides of March"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0001",
+        "start": 0,
+        "end": 121
+      }
+    ],
+    "token_count": 30,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "de7340b86e2800ae75326988a3bbb109b672131332aa3ad03a602ec690e2c10e"
+  },
+  {
+    "ordinal": 2,
+    "source_text": "Aftermath\n\nCivil war followed within two years. Octavian took the name Augustus in 27 BCE and the Republic did not recover.",
+    "contextualized_text": "caesar.txt > Aftermath\n\nAftermath\n\nCivil war followed within two years. Octavian took the name Augustus in 27 BCE and the Republic did not recover.",
+    "section_path": [
+      "Aftermath"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0002",
+        "start": 0,
+        "end": 9
+      },
+      {
+        "block_id": "b0003",
+        "start": 0,
+        "end": 112
+      }
+    ],
+    "token_count": 27,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "4c1b3873213ee91a0b1500c28a4e4e7838fb6163cc659ada7d0320a082e619f3"
+  }
+]

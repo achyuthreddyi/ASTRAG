@@ -1,0 +1,154 @@
+[
+  {
+    "ordinal": 0,
+    "source_text": "Roman Timeline\n\nDates before 45 BCE use the pre-Julian calendar.",
+    "contextualized_text": "timeline.md > Roman Timeline\n\nRoman Timeline\n\nDates before 45 BCE use the pre-Julian calendar.",
+    "section_path": [
+      "Roman Timeline"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0000",
+        "start": 0,
+        "end": 14
+      },
+      {
+        "block_id": "b0001",
+        "start": 0,
+        "end": 48
+      }
+    ],
+    "token_count": 14,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "1293823dc4ce279d9702ef97ad90553c263cd805944416a26171534f5ad0c8a0"
+  },
+  {
+    "ordinal": 1,
+    "source_text": "Republic\n\n509 BCE: the Republic is founded\n\n44 BCE: Caesar is assassinated",
+    "contextualized_text": "timeline.md > Roman Timeline > Republic\n\nRepublic\n\n509 BCE: the Republic is founded\n\n44 BCE: Caesar is assassinated",
+    "section_path": [
+      "Roman Timeline",
+      "Republic"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0002",
+        "start": 0,
+        "end": 8
+      },
+      {
+        "block_id": "b0003",
+        "start": 0,
+        "end": 32
+      },
+      {
+        "block_id": "b0004",
+        "start": 0,
+        "end": 30
+      }
+    ],
+    "token_count": 15,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "61c7f2d2b3c512d656f0321a28a5407e0fb2f885ae3605f975176b979ebf5644"
+  },
+  {
+    "ordinal": 2,
+    "source_text": "Sources\n\n| Author | Work | Date |",
+    "contextualized_text": "timeline.md > Roman Timeline > Republic > Sources\n\nSources\n\n| Author | Work | Date |",
+    "section_path": [
+      "Roman Timeline",
+      "Republic",
+      "Sources"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0005",
+        "start": 0,
+        "end": 7
+      },
+      {
+        "block_id": "b0006",
+        "start": 0,
+        "end": 24
+      }
+    ],
+    "token_count": 8,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "7c816d62ed89c1d87f40ab240668af557d635a83f94b285404ea7f3943016a01"
+  },
+  {
+    "ordinal": 3,
+    "source_text": "| Suetonius | Lives | c. 121 CE |",
+    "contextualized_text": "timeline.md > Roman Timeline > Republic > Sources\n\n| Suetonius | Lives | c. 121 CE |",
+    "section_path": [
+      "Roman Timeline",
+      "Republic",
+      "Sources"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0007",
+        "start": 0,
+        "end": 33
+      }
+    ],
+    "token_count": 14,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "0cba2b6cc6a7708d48f773af13b630d1f6143607d510ca34baee6e49f6d80f1e"
+  },
+  {
+    "ordinal": 4,
+    "source_text": "Suetonius wrote roughly a century and a half after the events.\n\nraw fragment, not prose",
+    "contextualized_text": "timeline.md > Roman Timeline > Republic > Sources\n\nSuetonius wrote roughly a century and a half after the events.\n\nraw fragment, not prose",
+    "section_path": [
+      "Roman Timeline",
+      "Republic",
+      "Sources"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0008",
+        "start": 0,
+        "end": 62
+      },
+      {
+        "block_id": "b0009",
+        "start": 0,
+        "end": 23
+      }
+    ],
+    "token_count": 20,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "e0e41b7f55dd8f9132eb7d20b0789bcb8b00eedbe14a6e9824783c55b6441e0a"
+  },
+  {
+    "ordinal": 5,
+    "source_text": "Empire\n\nAugustus held power from 27 BCE until 14 CE.",
+    "contextualized_text": "timeline.md > Roman Timeline > Empire\n\nEmpire\n\nAugustus held power from 27 BCE until 14 CE.",
+    "section_path": [
+      "Roman Timeline",
+      "Empire"
+    ],
+    "source_spans": [
+      {
+        "block_id": "b0010",
+        "start": 0,
+        "end": 6
+      },
+      {
+        "block_id": "b0011",
+        "start": 0,
+        "end": 44
+      }
+    ],
+    "token_count": 15,
+    "page_start": null,
+    "page_end": null,
+    "content_hash": "903975da20c7eda9e3689b812f1bbe91ba7313ccac6827db7ee0ccf068a42b22"
+  }
+]
