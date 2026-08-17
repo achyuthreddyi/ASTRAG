@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -36,6 +36,7 @@ EvidenceGatheringResult
 - resolved_query
 - evidence_policy
 - completion_status
+- required_source_statuses[]
 - retrieval_runs[]
 - interpretation_assumptions[]
 - tool_failures[]
@@ -44,12 +45,35 @@ EvidenceGatheringResult
 - stop_reason
 ```
 
-Each retrieval run preserves at least:
+`required_source_statuses[]` is first-class rather than inferred from summary text so Stage 5, evaluation, and observability can verify whether each ADR-001 obligation was required, attempted, and completed independently from whether it succeeded.
+
+Conceptually:
+
+```text
+RequiredSourceStatus
+- source_type
+- required
+- attempted
+- completed
+- outcome
+- terminal_failure?
+```
+
+### Retrieval-run causal lineage
+
+Each retrieval run preserves enough causal metadata to distinguish mandatory initial execution, operational retries, reformulations, decomposition tasks, and other evidence-seeking attempts.
+
+Conceptually:
 
 ```text
 RetrievalRun
 - run_id
+- task_id
 - parent_task_id?
+- run_kind
+- parent_run_id?
+- trigger_reason?
+- query_transform_id?
 - source_type
 - query_used
 - outcome
@@ -58,7 +82,23 @@ RetrievalRun
 - failure?
 ```
 
-This allows Stage 5, evaluation, and observability to distinguish initial retrieval, operational retry outcomes, reformulation attempts, decomposition tasks, and source-specific failures.
+`run_kind` is a stable orchestration-level classification, conceptually including values such as:
+
+```text
+MANDATORY_INITIAL
+OPERATIONAL_RETRY
+EVIDENCE_SEEKING_REFORMULATION
+EVIDENCE_SEEKING_DECOMPOSITION
+EVIDENCE_SEEKING_ANCHOR_RECOVERY
+EVIDENCE_SEEKING_CONFLICT_FOLLOWUP
+OTHER_BOUNDED_EVIDENCE_SEEKING
+```
+
+Exact enum naming may evolve during implementation, but the semantic distinction and causal lineage are required.
+
+`parent_run_id`, `parent_task_id`, `trigger_reason`, and `query_transform_id` are populated where applicable. Operational retries point to the logical execution they repeat. Reformulations and decomposition runs preserve the transformation/task lineage that caused the new execution.
+
+This prevents Stage 5, Stage 7, or Stage 8 from reconstructing trajectory semantics heuristically from query text or execution order.
 
 ### Orchestration completion is separate from retrieval outcome
 
@@ -73,7 +113,7 @@ REJECTED
 CLARIFICATION_REQUIRED
 ```
 
-For example, if local retrieval succeeds and mandatory web retrieval persistently fails after bounded retries, Stage 4 may return `COMPLETED_DEGRADED` with successful local evidence and explicit web failure metadata.
+For example, if local retrieval succeeds and mandatory web retrieval persistently fails after bounded retries, Stage 4 may return `COMPLETED_DEGRADED` with successful local evidence, explicit web failure metadata, and a required-source status showing that the bounded web obligation was attempted but did not succeed.
 
 Completion does not imply final answerability or sufficient evidence.
 
@@ -105,6 +145,7 @@ EvidenceCandidate
 - temporal_metadata[]
 - retrieval_lineage[]
 - source_provenance
+- content_acquisition?
 ```
 
 The common envelope exists to let Stage 5 reason over gathered evidence without knowing Stage 4 control-flow internals.
@@ -193,7 +234,22 @@ A web evidence candidate must contain usable evidence text suitable for downstre
 
 A search-engine snippet may be retained as metadata but is not sufficient as the authoritative evidence payload when it cannot reliably support downstream factual grounding.
 
-The concrete acquisition method may vary by provider and implementation as long as the logical contract is satisfied.
+The contract does **not** require downloading or retaining every complete page. Provider-returned extracted content, selected passages, normalized page text, or another acquired representation may satisfy the contract when it contains enough source text to support the candidate's factual grounding.
+
+Web candidates must preserve acquisition/completeness semantics so downstream stages do not mistake an extracted fragment for a complete source. Conceptually:
+
+```text
+ContentAcquisition
+- acquisition_kind
+- completeness
+- acquired_at
+- source_locator?
+- truncation_or_extraction_notes?
+```
+
+Conceptual `completeness` states may distinguish values such as `FULL`, `PARTIAL`, and `UNKNOWN`. Exact field/enum names are implementation details; preserving whether the evidence payload is complete, partial, or of unknown completeness is architectural.
+
+If usable grounding text cannot be acquired, the implementation must return an explicit degradation/failure/no-usable-candidate state rather than promoting an inadequate snippet into authoritative evidence.
 
 ### Typed web temporal semantics
 
@@ -246,7 +302,7 @@ INTERNAL_RETRIEVAL_FAILURE
 
 Provider-native details remain available for diagnostics without controlling global orchestration semantics.
 
-Executor outputs that violate the expected contract fail explicitly as `MALFORMED_TOOL_RESPONSE`; Stage 4 does not invent missing provenance or substantive evidence fields.
+Executor outputs that violate the expected contract fail explicitly as `MALFORMED_TOOL_RESPONSE`; Stage 4 does not invent missing provenance, acquisition state, or substantive evidence fields.
 
 ### Partial success and degraded gathering
 
@@ -257,7 +313,7 @@ Stage 4 preserves:
 - successful candidates,
 - failed/degraded source identity,
 - failure metadata,
-- required-source execution status,
+- first-class required-source execution status,
 - final orchestration completion status.
 
 If all required sources fail, Stage 4 returns the structured failure/degraded gathering state and does not substitute pretrained model knowledge as factual evidence.
@@ -275,9 +331,9 @@ Stage 4 does not perform semantic duplicate detection, copied-source analysis, i
 
 ### Conflict boundary
 
-Stage 4 preserves contradictory evidence and may perform bounded follow-up retrieval under ADR-009 when conflict is a valid evidence-seeking trigger.
+Stage 4 preserves contradictory evidence and may perform bounded follow-up retrieval under ADR-009 only from a structured possible-conflict signal that justifies additional evidence gathering.
 
-It does not choose which claim is true, suppress one side, group final conflicts, or assign final authority.
+That signal is not a final conflict group or truth judgment. Stage 4 does not choose which claim is true, suppress one side, perform final semantic conflict grouping, or assign final authority. Those remain Stage 5 responsibilities.
 
 ### Retrieved content is data, not control
 
@@ -299,20 +355,24 @@ Stage 9 may add defense-in-depth mechanisms, but this control/data separation is
 ### Positive
 
 - Stage 5 receives enough lineage to evaluate and combine evidence without understanding the Stage 4 state-machine implementation.
+- Stage 7/8 can distinguish mandatory initial runs, retries, reformulations, decomposition, and other adaptive executions without inference.
+- Required-source compliance is directly inspectable.
 - Local and web evidence share useful common fields without fabricating identities.
 - Provider replacement does not force downstream schema changes.
 - Web evidence is grounding-capable rather than snippet-dependent.
+- Partial/extracted web content is represented honestly instead of masquerading as a full source.
 - Successful evidence survives independent source failures.
 - No-results and failures remain distinguishable.
-- Retry/reformulation/decomposition effects remain observable.
 - Stage 4 cannot silently absorb Stage 5 semantic deduplication, corroboration, conflict, or sufficiency responsibilities.
 - Prompt-injection boundaries are clearer because retrieved content is structurally data-plane input.
 
 ### Negative
 
 - EvidenceGatheringResult and typed provenance schemas are richer than a flat candidate list.
+- Causal run lineage requires additional structured metadata.
 - Web content acquisition may increase latency, external calls, and cost.
 - Provider-normalization code must preserve both common and provider-specific metadata.
+- Content completeness may sometimes remain `UNKNOWN` and must be handled downstream.
 - Stage 5 must still perform semantic deduplication/corroboration across potentially redundant local/web evidence.
 - Canonical URL identity may be imperfect and must not be mistaken for semantic duplicate certainty.
 
@@ -321,6 +381,14 @@ Stage 9 may add defense-in-depth mechanisms, but this control/data separation is
 ### Flatten all candidates before Stage 5
 
 Rejected because it destroys run/reformulation/source-failure lineage and makes evaluation/reproduction harder.
+
+### Infer run type from ordering or query text
+
+Rejected because Stage 5/7/8 would need to reconstruct orchestration semantics heuristically. Run kind and causal lineage are explicit contract fields.
+
+### Keep required-source status only in execution summary
+
+Rejected because ADR-001 compliance must be directly testable and machine-readable.
 
 ### Pass provider-native responses directly downstream
 
@@ -333,6 +401,10 @@ Rejected because web evidence does not naturally have local corpus/document/vers
 ### Snippet-only web evidence
 
 Rejected because snippets may not contain enough authoritative text for grounded context assembly and generation.
+
+### Require full-page acquisition for every web candidate
+
+Rejected because grounding requires usable source text, not necessarily complete-page retention. Extracted or partial content can be valid when its acquisition/completeness state is explicit.
 
 ### Stage 4 semantic deduplication/corroboration
 

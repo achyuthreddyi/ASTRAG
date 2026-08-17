@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -78,11 +78,13 @@ Conversation history, query transformations, retrieved evidence, tool output, or
 
 ### Mandatory source execution
 
-When corpora are selected and Web is ON, local and web retrieval are both mandatory and should execute concurrently after shared query understanding when practical.
+When corpora are selected and Web is ON, local and web retrieval are both mandatory bounded execution obligations.
 
 Success from one required source cannot cancel the initial execution obligation of the other.
 
 Mandatory execution means a bounded execution-attempt obligation, not guaranteed provider success. Persistent failure remains explicit downstream.
+
+When both required source classes are ready after shared query understanding, concurrent initial execution is the preferred V1 implementation strategy because it reduces latency and isolates source failures. Concurrency is **not** a semantic requirement of ADR-001: an implementation may sequence execution when a concrete dependency, executor limitation, or deadline strategy requires it, provided both mandatory source obligations remain independently enforced and one source's success cannot suppress the other's required initial attempt.
 
 ### Incremental execution planning
 
@@ -111,19 +113,29 @@ RELEVANT_SOURCE_DEGRADED
 CONFLICT_FOLLOWUP
 ```
 
+`UNRESOLVED_REFERENCE` is a valid evidence-seeking trigger only when bounded retrieval can plausibly recover the missing anchor without inventing identity. Material ambiguity that would change the factual target requires clarification instead.
+
+`RELEVANT_SOURCE_DEGRADED` is a valid trigger only when a different permitted strategy can plausibly recover useful evidence.
+
 ### Query reformulation and decomposition
 
 V1 supports bounded intent-preserving reformulation and bounded decomposition into explicit retrieval tasks.
 
 It does not support unrestricted multi-query fan-out.
 
-All derived tasks:
+All derived queries/tasks:
 
-- preserve the original question,
-- retain parent/child lineage,
+- preserve the immutable original question,
+- retain parent/child or transformation lineage,
 - inherit the same immutable EvidencePolicy,
-- preserve temporal uncertainty,
-- cannot introduce unsupported factual premises.
+- preserve the user's factual subject/entity target unless the transformation explicitly represents a bounded unresolved-reference recovery,
+- preserve the requested factual relation or objective,
+- preserve typed temporal constraints, precision, certainty, and unresolved state rather than strengthening them into false exactness,
+- cannot introduce unsupported factual premises,
+- cannot silently add new source restrictions or authority assumptions,
+- record a traceable transformation reason and the resulting retrieval query.
+
+A reformulation is intent-preserving only when it changes retrieval expression, not the factual proposition being asked. If a proposed rewrite would require assuming a disputed or unknown fact to form the query, it is rejected rather than treated as a valid reformulation.
 
 ### Multidimensional budgets
 
@@ -143,7 +155,7 @@ deadline
 
 A global ceiling coexists with per-source ceilings so one source class cannot consume the entire adaptive-search budget.
 
-Exact numeric values are versioned implementation/evaluation configuration, not architectural constants.
+Exact numeric values are versioned implementation/evaluation configuration, not architectural constants. The reasoning model cannot increase or reset these budgets.
 
 ### Stop semantics
 
@@ -164,11 +176,13 @@ Stage 4 does not emit final `SUFFICIENT_EVIDENCE` or `ANSWERABLE` judgments. Tho
 
 The normal successful stop state means required source obligations were attempted and no justified bounded retrieval action remains.
 
+`REQUIRED_TOOL_FAILURE` indicates that a required source could not complete successfully within its bounded execution/retry policy. It may coexist with orchestration-level degraded completion when another required source succeeded and its evidence is preserved.
+
 ### Conflict handling
 
-Observed conflict may trigger one or more bounded follow-up retrieval attempts while budget remains.
+Stage 4 may perform one or more bounded follow-up retrieval attempts when it receives or derives a structured **possible-conflict signal** indicating that additional retrieval could materially improve the evidence set.
 
-Stage 4 does not decide which conflicting claim is true, suppress a side, perform final conflict grouping, or assign final source authority.
+The signal is not a final conflict group or truth judgment. Stage 4 may use only lightweight structured cues needed to justify another retrieval action; it must not implement semantic conflict grouping, choose a winner, suppress one side, or assign source authority. Final conflict grouping and interpretation remain Stage 5 responsibilities.
 
 ### Runtime state and trace state
 
@@ -179,7 +193,7 @@ V1 separates:
 
 Runtime state is ephemeral in V1. Durable/resumable workflow checkpoint recovery is not required.
 
-Trace information must be retained sufficiently for Stage 7 evaluation and Stage 8 debugging/observability.
+Trace information must be retained sufficiently for Stage 7 evaluation and Stage 8 debugging/observability. Trace records structured decisions, inputs, outputs, reasons, state transitions, and budget events; it does not require arbitrary model chain-of-thought prose.
 
 ### Framework policy
 
@@ -195,9 +209,12 @@ A framework may be adopted later without revisiting the semantic model if implem
 
 - Source-policy enforcement remains deterministic and testable.
 - Mandatory web/local behavior cannot be silently optimized away by the agent.
+- Concurrency can be used for latency without freezing scheduling into the semantic architecture.
 - Agentic reasoning is used where semantic reasoning adds value without controlling safety/correctness boundaries.
 - Infinite/unbounded loops are structurally prevented.
 - Retry semantics become observable and evaluable.
+- Intent-preservation rules become directly testable.
+- Conflict follow-up remains possible without absorbing Stage 5 conflict semantics.
 - Exact execution trajectories remain reproducible from explicit state/trace data.
 - V1 avoids unnecessary durable workflow infrastructure.
 - The architecture remains compatible with future orchestration frameworks if requirements grow.
@@ -208,6 +225,7 @@ A framework may be adopted later without revisiting the semantic model if implem
 - Some framework-provided conveniences are deferred.
 - Bounded execution may stop before exhaustive research finds every useful source.
 - Reformulation/decomposition quality becomes an additional evaluation surface.
+- Intent-preservation validation requires explicit tests and structured transformation metadata.
 - Future long-running/distributed workflows may require a runtime migration.
 
 ## Alternatives Considered
@@ -218,7 +236,11 @@ Rejected for V1 because it gives the reasoning model excessive control over exec
 
 ### Fully static workflow
 
-Rejected because ASTRAG needs bounded recovery from no-results, unresolved references/temporal anchors, query over-constraint, relevant degradation, and conflict signals.
+Rejected because ASTRAG needs bounded recovery from no-results, unresolved references/temporal anchors, query over-constraint, relevant degradation, and possible conflict signals.
+
+### Mandatory local/web concurrency as an architectural invariant
+
+Rejected. ADR-001 defines mandatory source execution, not scheduling topology. Concurrent execution is the preferred V1 implementation when practical, but semantic correctness depends on independent bounded source obligations rather than parallelism itself.
 
 ### LangGraph as mandatory V1 foundation
 
