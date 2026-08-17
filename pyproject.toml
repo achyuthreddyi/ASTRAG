@@ -1,0 +1,30 @@
+[project]
+name = "astrag"
+version = "0.1.0"
+description = "Evidence-grounded agentic RAG with first-class temporal retrieval"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.14",
+    "dateparser>=1.2",
+    "fastapi>=0.115",
+    "openai>=1.59",
+    "pgvector>=0.3.6",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.7",
+    "sqlalchemy>=2.0",
+    "tiktoken>=0.8",
+    "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.28", "pytest>=8.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astrag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
