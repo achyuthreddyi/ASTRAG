@@ -75,6 +75,13 @@ class Document(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    # The one version Stage 3 may retrieve from (§25: historical versions are
+    # lineage, not evidence). NULL until the first publication succeeds, and
+    # moved only by publication's atomic cutover — which is why activation is a
+    # single UPDATE of a single column rather than a status sweep over versions.
+    active_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = _timestamp()
     updated_at: Mapped[datetime] = _timestamp(onupdate=func.now())
 

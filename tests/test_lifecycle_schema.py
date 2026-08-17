@@ -148,3 +148,37 @@ def test_deleting_a_corpus_removes_its_documents_and_versions(db):
     remaining_documents = select(Document).where(Document.corpus_id == corpus.id)
     assert db.scalars(remaining_versions).all() == []
     assert db.scalars(remaining_documents).all() == []
+
+
+def test_a_document_starts_with_no_active_version(db):
+    """Nothing is searchable until publication says so (§23)."""
+    assert make_document(db, make_corpus(db)).active_version_id is None
+
+
+def test_activating_a_version_is_one_column_update(db):
+    document = make_document(db, make_corpus(db))
+    first = make_version(db, document, source_hash="1" * 64, status=VersionStatus.READY)
+    second = make_version(db, document, source_hash="2" * 64, status=VersionStatus.READY)
+
+    document.active_version_id = first.id
+    db.flush()
+    document.active_version_id = second.id
+    db.flush()
+
+    # The superseded version survives as lineage; it is simply no longer active.
+    assert document.active_version_id == second.id
+    assert db.get(DocumentVersion, first.id) is not None
+
+
+def test_deleting_the_active_version_clears_the_pointer(db):
+    """Better a document with nothing searchable than a pointer into a hole."""
+    document = make_document(db, make_corpus(db))
+    version = make_version(db, document, status=VersionStatus.READY)
+    document.active_version_id = version.id
+    db.flush()
+
+    db.delete(version)
+    db.flush()
+    db.refresh(document)
+
+    assert document.active_version_id is None
