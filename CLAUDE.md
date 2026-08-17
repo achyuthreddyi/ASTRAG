@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stage 2 (ingestion) is under implementation against `docs/stages/02-ingestion-implementation-plan.md`.
+Stage 2 (ingestion) is implemented against `docs/stages/02-ingestion-implementation-plan.md`.
+Stage 3 (retrieval) is under implementation against `docs/stages/03-retrieval-implementation-plan.md`.
 The governing design sources are `NORTHSTAR.md`, accepted ADRs, `docs/architecture/architecture.md`, `stages.md`, and the stage documents under `docs/stages/`.
 
 Python 3.12 managed by `uv`; package lives in `src/astrag/`, migrations in `alembic/`.
