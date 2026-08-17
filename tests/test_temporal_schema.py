@@ -65,7 +65,13 @@ def test_one_chunk_holds_many_mentions(db, chunk):
     make_mention(db, chunk, start_offset=0, end_offset=7)
     make_mention(db, chunk, start_offset=24, end_offset=31)
 
-    assert len(db.scalars(select(TemporalMention)).all()) == 2
+    # Scoped to this chunk: a global count would also see whatever the developer
+    # left in their database.
+    assert len(
+        db.scalars(
+            select(TemporalMention).where(TemporalMention.chunk_id == chunk.id)
+        ).all()
+    ) == 2
 
 
 def test_the_same_span_twice_in_one_chunk_is_rejected(db, chunk):
