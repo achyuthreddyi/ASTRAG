@@ -115,18 +115,27 @@ Responsibilities:
 
 ## 5. Context Assembly
 
-Combine the retrieved information and tool results into the context that will be sent to the LLM.
+Transform the completed Stage 4 `EvidenceGatheringResult` into a provenance-safe, duplicate-aware, conflict-preserving, token-bounded structured `GenerationContext` for Stage 6.
 
 Responsibilities:
-- Deduplication
-- Context ranking
+- Evidence-policy and provenance revalidation
+- Evidence relationship / semantic duplicate analysis
+- Independent corroboration semantics
+- Material conflict grouping
+- Question/subquestion coverage assessment
+- Final evidence relevance / utility reassessment
+- Context ranking and selection
+- Soft source/document/domain/task diversity control
 - Token budgeting
-- Source grouping
 - Context ordering
-- Chronological ordering when required
-- Prompt construction
+- Chronological organization when required
+- Provenance-preserving extractive trimming
+- Final evidence sufficiency and partial-answer support
+- Structured `GenerationContext` construction
 
-The goal is to provide the model with the smallest useful and highest-quality context.
+Stage 5 does **not** own system/generation prompt construction, final answer wording, final citation rendering, or user-facing response formatting.
+
+The goal is to provide Stage 6 with the smallest useful and highest-quality evidence context while preserving source boundaries, provenance, temporal uncertainty, conflicts, unsupported aspects, and required-source failure/degradation state.
 
 ---
 
@@ -137,10 +146,9 @@ Build the final response-generation layer.
 Typical flow:
 
 ```text
-Question
-+ Retrieved Context
-+ Tool Results
-+ Instructions
+Original / Resolved Question
++ GenerationContext
++ System / Generation Instructions
         ↓
        LLM
         ↓
@@ -148,13 +156,16 @@ Grounded Final Answer
 ```
 
 Define:
-- System prompts
+- System and generation prompt construction
 - Grounding instructions
 - Structured outputs
-- Citation behaviour
+- Citation behaviour and final citation rendering
 - Response formatting
+- Conflict / uncertainty / partial-answer wording
 - "I don't know" behaviour
 - Unsupported-answer handling
+
+Stage 6 consumes the structured Stage 5 `GenerationContext`; it does not re-own evidence deduplication, corroboration, conflict grouping, coverage, or final evidence sufficiency.
 
 ---
 
@@ -175,6 +186,7 @@ Expected Behaviour
 Evaluate:
 - Retrieval quality
 - Reranker quality
+- Context assembly quality
 - Answer correctness
 - Faithfulness
 - Hallucination rate
@@ -300,4 +312,4 @@ Production concerns:
 10. Production / Serving
 ```
 
-> Note: Evaluation is listed as a separate architectural stage, but it should be introduced early in the project and continuously used while building the other stages.
+> Note: Evaluation is listed as a separate architectural stage, but it should be introduced early and continuously used while building the other stages.
