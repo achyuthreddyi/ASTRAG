@@ -101,7 +101,117 @@ Canonical evidence is authoritative; every search index is a **rebuildable proje
 
 ## Status
 
-Design phase — architecture is being accepted stage by stage before any code is written. Stages 1–3 (problem definition, ingestion, retrieval) are accepted; no source code yet.
+Stages 1–3 are accepted design. **Stage 2 (ingestion) is implemented**: upload a TXT or Markdown document and it is parsed, normalized, chunked, temporally annotated, embedded, validated and published as searchable, with durable job state and crash recovery. Retrieval (Stage 3) is not built yet — there is no search endpoint.
+
+## Try it end to end
+
+Python 3.12 and `uv`; Docker for the database. The default embedding provider is a deterministic offline fake, so no API key is needed.
+
+```bash
+uv sync --extra dev
+docker compose up -d                 # PostgreSQL 17 + pgvector on localhost:5433
+uv run alembic upgrade head
+```
+
+Two processes — the API accepts uploads, the worker ingests them:
+
+```bash
+uv run uvicorn astrag.api.app:app --reload     # terminal 1
+uv run python -m astrag.worker                 # terminal 2
+```
+
+Create a corpus and upload a document:
+
+```bash
+cat > rome.md <<'EOF'
+# Roman Republic
+
+The Republic was founded in 509 BCE after the overthrow of the monarchy.
+
+## Fall of the Republic
+
+Caesar was assassinated on 15 March 44 BCE. Augustus took power in 27 BCE,
+ending the Republic and beginning the Principate.
+EOF
+
+CORPUS=$(curl -s -X POST localhost:8000/corpora \
+  -H 'content-type: application/json' -d '{"name":"rome"}' | jq -r .id)
+
+DOC=$(curl -s -X POST localhost:8000/corpora/$CORPUS/documents \
+  -F file=@rome.md | jq -r .document_id)
+```
+
+The upload returns immediately with `"status": "PENDING"`. Poll the status contract until the worker publishes it:
+
+```bash
+curl -s localhost:8000/documents/$DOC | jq
+```
+
+```json
+{
+  "document_version_id": "d51497b2-…",
+  "active_version_id": "d51497b2-…",
+  "status": "READY",
+  "current_stage": "publish",
+  "degraded_capabilities": {},
+  "error_summary": null
+}
+```
+
+`active_version_id` equal to `document_version_id` means this version passed publication validation and is the one retrieval would see. `READY_DEGRADED` with `{"temporal": "degraded"}` means the document is searchable but temporal extraction failed; `FAILED` puts the reason in `error_summary`.
+
+### See what ingestion actually produced
+
+```bash
+psql() { docker compose exec -T db psql -U astrag -d astrag -c "$1"; }
+
+# chunks — structure-aware, token-bounded, with their section path
+psql "SELECT c.ordinal, c.token_count, c.section_path, left(c.source_text, 55)
+      FROM chunks c JOIN document_versions v ON v.id = c.document_version_id
+      WHERE v.document_id = '$DOC' ORDER BY c.ordinal;"
+
+# temporal mentions — precision, certainty, and the chunk each is anchored to
+psql "SELECT m.text, m.precision, m.certainty, m.start_year, c.ordinal
+      FROM temporal_mentions m JOIN chunks c ON c.id = m.chunk_id
+      JOIN document_versions v ON v.id = c.document_version_id
+      WHERE v.document_id = '$DOC' ORDER BY m.start_year;"
+
+# dense representations — one 1536-dim vector per chunk
+psql "SELECT c.ordinal, r.model, vector_dims(r.embedding), r.input_tokens
+      FROM chunk_representations r JOIN chunks c ON c.id = r.chunk_id
+      JOIN document_versions v ON v.id = c.document_version_id
+      WHERE v.document_id = '$DOC' ORDER BY c.ordinal;"
+
+# the ingestion attempt itself — stage checkpoint, attempt number, queue state
+psql "SELECT r.stage, r.attempt, r.finished_at IS NOT NULL AS finished, j.state
+      FROM ingestion_runs r JOIN ingestion_jobs j USING (document_version_id)
+      JOIN document_versions v ON v.id = r.document_version_id
+      WHERE v.document_id = '$DOC';"
+```
+
+For that document you should see two chunks (one per section, the heading leading its own chunk), three temporal mentions with `509 BCE` at `YEAR` precision and `15 March 44 BCE` at `DAY`, one vector per chunk, and a single finished attempt checkpointed at `publish`.
+
+### Replace and delete
+
+```bash
+curl -s -X PUT localhost:8000/documents/$DOC -F file=@rome-v2.md   # new version
+curl -s -X DELETE localhost:8000/documents/$DOC -o /dev/null -w '%{http_code}\n'   # 204
+```
+
+A replacement builds a whole new version while the previous one stays active and searchable; the pointer moves only when the new version's own run publishes. Delete cascades to versions, chunks, mentions and vectors in one transaction, then sweeps artifacts no other document still references.
+
+### Watch crash recovery
+
+Kill the worker mid-ingestion (`Ctrl-C` twice, or `pkill -9 -f astrag.worker`) and start it again. Within `ASTRAG_STALE_JOB_SECONDS` (default 300) it reclaims the abandoned job, continues the same attempt rather than burning a new one, resumes at the checkpointed stage, and reuses the normalized artifact and chunk rows that were already durable — so nothing is re-parsed and no vector is bought twice.
+
+### Tests
+
+```bash
+uv run pytest                         # 156 tests, needs docker compose up
+uv run pytest tests/test_end_to_end.py -v   # upload → searchable, plus crash-resume
+```
+
+To use real OpenAI embeddings instead of the fake: `ASTRAG_EMBEDDING_PROVIDER=openai ASTRAG_OPENAI_API_KEY=sk-…`. All configuration is env-driven with the `ASTRAG_` prefix; see `.env.example`.
 
 ## Repository
 
