@@ -1,19 +1,21 @@
 from astrag.models.base import Base
 from astrag.models.lifecycle import (
-    ActiveGenerations,
+    ActiveGenerationPointer,
     Corpus,
     Document,
     DocumentVersion,
     ProcessingGeneration,
     SearchRepresentationGeneration,
+    VersionStatus,
 )
 
 __all__ = [
-    "ActiveGenerations",
+    "ActiveGenerationPointer",
     "Base",
     "Corpus",
     "Document",
     "DocumentVersion",
     "ProcessingGeneration",
     "SearchRepresentationGeneration",
+    "VersionStatus",
 ]

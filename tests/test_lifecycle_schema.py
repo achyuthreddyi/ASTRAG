@@ -10,12 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from astrag.models import (
-    ActiveGenerations,
+    ActiveGenerationPointer,
     Corpus,
     Document,
     DocumentVersion,
     ProcessingGeneration,
     SearchRepresentationGeneration,
+    VersionStatus,
 )
 
 
@@ -33,10 +34,10 @@ def make_document(db, corpus: Corpus) -> Document:
     return document
 
 
-def make_version(db, document: Document, source_hash="a" * 64, **kwargs):
+def make_version(db, document: Document, source_hash="a" * 64, corpus_id=None, **kwargs):
     version = DocumentVersion(
         document_id=document.id,
-        corpus_id=document.corpus_id,
+        corpus_id=corpus_id or document.corpus_id,
         source_hash=source_hash,
         source_artifact_key=f"ab/{source_hash}",
         filename="doc.txt",
@@ -69,32 +70,45 @@ def test_same_bytes_in_another_corpus_is_allowed(db):
 def test_two_in_flight_versions_for_one_document_are_rejected(db):
     """Invariant 2: only one replacement version may process at a time."""
     document = make_document(db, make_corpus(db))
-    make_version(db, document, source_hash="b" * 64, status="RUNNING")
+    make_version(db, document, source_hash="b" * 64, status=VersionStatus.RUNNING)
 
     with pytest.raises(IntegrityError, match="uq_document_versions_one_in_flight"):
-        make_version(db, document, source_hash="c" * 64, status="PENDING")
+        make_version(db, document, source_hash="c" * 64, status=VersionStatus.PENDING)
 
 
 def test_a_new_version_may_process_beside_a_ready_one(db):
     """The published version stays searchable while its replacement processes."""
     document = make_document(db, make_corpus(db))
-    active = make_version(db, document, source_hash="d" * 64, status="READY")
-    replacement = make_version(db, document, source_hash="e" * 64, status="RUNNING")
+    active = make_version(db, document, source_hash="d" * 64, status=VersionStatus.READY)
+    replacement = make_version(db, document, source_hash="e" * 64, status=VersionStatus.RUNNING)
 
     assert {active.status, replacement.status} == {"READY", "RUNNING"}
+
+
+def test_a_version_cannot_claim_a_corpus_its_document_is_not_in(db):
+    """The denormalized corpus_id is trustworthy, not merely convenient.
+
+    Stage 3 filters the corpus boundary on this copy, so a copy that could drift
+    from the parent document would be a silent evidence-boundary leak.
+    """
+    document = make_document(db, make_corpus(db, "owning"))
+    unrelated = make_corpus(db, "unrelated")
+
+    with pytest.raises(IntegrityError, match="fk_document_versions_document_corpus"):
+        make_version(db, document, corpus_id=unrelated.id)
 
 
 def test_an_unknown_processing_generation_is_rejected(db):
     """Invariant 3: no row may reference a generation that does not exist."""
     document = make_document(db, make_corpus(db))
 
-    with pytest.raises(IntegrityError, match="processing_generation_id"):
-        make_version(db, document, processing_generation_id=uuid.uuid4())
+    with pytest.raises(IntegrityError, match="published_processing_generation_id"):
+        make_version(db, document, published_processing_generation_id=uuid.uuid4())
 
 
 def test_the_seeded_active_pointers_resolve(db):
     """The migration leaves exactly one row pointing at real generations."""
-    pointer = db.scalars(select(ActiveGenerations)).one()
+    pointer = db.scalars(select(ActiveGenerationPointer)).one()
 
     assert db.get(ProcessingGeneration, pointer.processing_generation_id)
     srg = db.get(
@@ -103,12 +117,12 @@ def test_the_seeded_active_pointers_resolve(db):
     assert srg.config["dimensions"] == 1536
 
 
-def test_a_second_active_generations_row_is_rejected(db):
+def test_a_second_pointer_row_is_rejected(db):
     """The global pointer is global: the table holds one row by construction."""
-    pointer = db.scalars(select(ActiveGenerations)).one()
+    pointer = db.scalars(select(ActiveGenerationPointer)).one()
 
     db.add(
-        ActiveGenerations(
+        ActiveGenerationPointer(
             id=2,
             processing_generation_id=pointer.processing_generation_id,
             search_representation_generation_id=(
@@ -116,7 +130,7 @@ def test_a_second_active_generations_row_is_rejected(db):
             ),
         )
     )
-    with pytest.raises(IntegrityError, match="ck_active_generations_single_row"):
+    with pytest.raises(IntegrityError, match="ck_active_generation_pointer_single_row"):
         db.flush()
 
 

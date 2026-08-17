@@ -1,8 +1,8 @@
 """lifecycle schema
 
-Revision ID: 0e20e1605703
+Revision ID: a9a1f4acd2c6
 Revises: 
-Create Date: 2026-08-17 15:25:35.179937
+Create Date: 2026-08-17 15:34:40.273969
 
 """
 from typing import Sequence, Union
@@ -48,12 +48,12 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('active_generations',
+    op.create_table('active_generation_pointer',
     sa.Column('id', sa.Integer(), autoincrement=False, nullable=False),
     sa.Column('processing_generation_id', sa.UUID(), nullable=False),
     sa.Column('search_representation_generation_id', sa.UUID(), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint('id = 1', name='ck_active_generations_single_row'),
+    sa.CheckConstraint('id = 1', name='ck_active_generation_pointer_single_row'),
     sa.ForeignKeyConstraint(['processing_generation_id'], ['processing_generations.id'], ),
     sa.ForeignKeyConstraint(['search_representation_generation_id'], ['search_representation_generations.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -65,7 +65,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['corpus_id'], ['corpora.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('id', 'corpus_id', name='uq_documents_id_corpus_id')
     )
     op.create_index(op.f('ix_documents_corpus_id'), 'documents', ['corpus_id'], unique=False)
     op.create_table('document_versions',
@@ -79,13 +80,12 @@ def upgrade() -> None:
     sa.Column('byte_size', sa.BigInteger(), nullable=False),
     sa.Column('status', sa.Enum('PENDING', 'RUNNING', 'READY', 'READY_DEGRADED', 'FAILED', name='document_version_status'), server_default='PENDING', nullable=False),
     sa.Column('degraded_capabilities', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
-    sa.Column('processing_generation_id', sa.UUID(), nullable=True),
+    sa.Column('published_processing_generation_id', sa.UUID(), nullable=True),
     sa.Column('error_summary', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['corpus_id'], ['corpora.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['processing_generation_id'], ['processing_generations.id'], ),
+    sa.ForeignKeyConstraint(['document_id', 'corpus_id'], ['documents.id', 'documents.corpus_id'], name='fk_document_versions_document_corpus', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['published_processing_generation_id'], ['processing_generations.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('corpus_id', 'source_hash', name='uq_document_versions_corpus_source_hash')
     )
@@ -110,7 +110,7 @@ def upgrade() -> None:
             '{{"provider": "openai", "model": "text-embedding-3-small",
                 "dimensions": 1536, "tokenizer": "cl100k_base"}}'::jsonb
         );
-        INSERT INTO active_generations
+        INSERT INTO active_generation_pointer
             (id, processing_generation_id, search_representation_generation_id)
         VALUES (1, '{PROCESSING_GENERATION_ID}',
                 '{SEARCH_REPRESENTATION_GENERATION_ID}');
@@ -126,7 +126,7 @@ def downgrade() -> None:
     op.drop_table('document_versions')
     op.drop_index(op.f('ix_documents_corpus_id'), table_name='documents')
     op.drop_table('documents')
-    op.drop_table('active_generations')
+    op.drop_table('active_generation_pointer')
     op.drop_table('search_representation_generations')
     op.drop_table('processing_generations')
     op.drop_table('corpora')

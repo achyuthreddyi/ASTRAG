@@ -9,6 +9,7 @@ and generation validity.
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
@@ -28,17 +30,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from astrag.models.base import Base
 
-# The fourteen conceptual states in 02-ingestion.md §19 are pipeline stages, not
-# a demand for fourteen enum values. Externally visible searchability lives here;
-# the current step lives in ingestion_runs.stage as plain text (rung 5).
-DOCUMENT_VERSION_STATUS = Enum(
-    "PENDING",
-    "RUNNING",
-    "READY",
-    "READY_DEGRADED",
-    "FAILED",
-    name="document_version_status",
-)
+class VersionStatus(StrEnum):
+    """Externally visible searchability state of a source version.
+
+    The fourteen conceptual states in 02-ingestion.md §19 are pipeline stages,
+    not a demand for fourteen enum values; the current step lives in
+    ingestion_runs.stage as plain text (rung 5).
+    """
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    READY = "READY"
+    READY_DEGRADED = "READY_DEGRADED"
+    FAILED = "FAILED"
 
 _UUID_PK = {"primary_key": True, "default": uuid.uuid4}
 
@@ -74,6 +78,12 @@ class Document(Base):
     created_at: Mapped[datetime] = _timestamp()
     updated_at: Mapped[datetime] = _timestamp(onupdate=func.now())
 
+    __table_args__ = (
+        # Redundant as a key, but it is what lets document_versions reference the
+        # (document, corpus) pair as a unit; see the composite FK there.
+        UniqueConstraint("id", "corpus_id", name="uq_documents_id_corpus_id"),
+    )
+
 
 class DocumentVersion(Base):
     """Immutable source-content version. Never created by a processing change."""
@@ -82,34 +92,34 @@ class DocumentVersion(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **_UUID_PK)
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("documents.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), nullable=False, index=True
     )
     # Denormalized from documents so the idempotency unique constraint below can
     # exist at all, and so Stage 3 filters the corpus boundary without a join.
-    corpus_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("corpora.id", ondelete="CASCADE"),
-        nullable=False,
-    )
+    # The composite FK is what makes the copy trustworthy: a version cannot claim
+    # a corpus its own document does not belong to.
+    corpus_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     source_artifact_key: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     media_type: Mapped[str] = mapped_column(Text, nullable=False)
     byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    status: Mapped[str] = mapped_column(
-        DOCUMENT_VERSION_STATUS, nullable=False, server_default="PENDING"
+    status: Mapped[VersionStatus] = mapped_column(
+        Enum(VersionStatus, name="document_version_status"),
+        nullable=False,
+        server_default=VersionStatus.PENDING,
     )
     # Only the degraded capabilities: {} means fully ready (§20). SEMANTIC and
     # LEXICAL can never be degraded, so they never appear here.
     degraded_capabilities: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
-    # Which ProcessingGeneration produced this version's chunk set; NULL until
-    # processing starts.
-    processing_generation_id: Mapped[uuid.UUID | None] = mapped_column(
+    # The *published* chunk set's generation — the third component of ADR-002's
+    # published searchable identity. NULL until publication; written only at
+    # cutover (rung 10), never when processing starts, or an unvalidated private
+    # build would become the selector. In-progress runs carry their own
+    # generation on the run and the chunks.
+    published_processing_generation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("processing_generations.id")
     )
     error_summary: Mapped[str | None] = mapped_column(Text)
@@ -117,6 +127,14 @@ class DocumentVersion(Base):
     updated_at: Mapped[datetime] = _timestamp(onupdate=func.now())
 
     __table_args__ = (
+        # A version belongs to its document *and* that document's corpus, as one
+        # fact. Deleting either cascades: corpus → documents → versions.
+        ForeignKeyConstraint(
+            ["document_id", "corpus_id"],
+            ["documents.id", "documents.corpus_id"],
+            ondelete="CASCADE",
+            name="fk_document_versions_document_corpus",
+        ),
         # Invariant 1: exact-byte idempotency within a corpus. The same bytes in
         # a different corpus are a distinct logical document by design.
         UniqueConstraint(
@@ -153,7 +171,7 @@ class SearchRepresentationGeneration(Base):
     created_at: Mapped[datetime] = _timestamp()
 
 
-class ActiveGenerations(Base):
+class ActiveGenerationPointer(Base):
     """Exactly one row: the global generation pointers.
 
     `search_representation_generation_id` is the globally active SRG that Stage 3
@@ -161,7 +179,7 @@ class ActiveGenerations(Base):
     for *new* processing (§3) — changing it does not reprocess anything.
     """
 
-    __tablename__ = "active_generations"
+    __tablename__ = "active_generation_pointer"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False, default=1)
     processing_generation_id: Mapped[uuid.UUID] = mapped_column(
@@ -175,5 +193,5 @@ class ActiveGenerations(Base):
     updated_at: Mapped[datetime] = _timestamp(onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("id = 1", name="ck_active_generations_single_row"),
+        CheckConstraint("id = 1", name="ck_active_generation_pointer_single_row"),
     )
