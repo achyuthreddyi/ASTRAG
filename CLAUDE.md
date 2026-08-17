@@ -4,9 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Design-only repo. No source code, dependencies, build, or test commands exist yet.
+Stage 2 (ingestion) is under implementation against `docs/stages/02-ingestion-implementation-plan.md`.
 The governing design sources are `NORTHSTAR.md`, accepted ADRs, `docs/architecture/architecture.md`, `stages.md`, and the stage documents under `docs/stages/`.
-When the first code lands, replace this section with the real build/lint/test commands.
+
+Python 3.12 managed by `uv`; package lives in `src/astrag/`, migrations in `alembic/`.
+
+```bash
+uv sync --extra dev        # install
+docker compose up -d       # PostgreSQL 17 + pgvector on localhost:5433
+uv run alembic upgrade head
+uv run pytest              # tests
+uv run uvicorn astrag.api.app:app --reload   # API (from rung 4)
+```
+
+Configuration is env-driven via `src/astrag/settings.py` (prefix `ASTRAG_`, nested with `__`); see `.env.example`.
 
 ## Commit rule (hard, non-negotiable)
 
