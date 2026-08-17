@@ -68,5 +68,6 @@ def test_an_extractor_failure_degrades_instead_of_failing(db, store, enqueued, m
     assert mentions_of(db, version) == []
 
 
-def test_the_stage_is_last_in_the_pipeline():
-    assert [name for name, _ in STAGES] == ["parse", "chunk", "temporal"]
+def test_the_stage_runs_after_chunking():
+    names = [name for name, _ in STAGES]
+    assert names.index("temporal") > names.index("chunk")

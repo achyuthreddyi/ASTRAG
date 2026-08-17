@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     embedding_provider: Literal["openai", "fake"] = "fake"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
+    # Implementation tuning, not architecture (§14): how many chunks go to the
+    # provider in one call.
+    embedding_batch_size: int = 128
     openai_api_key: str | None = None
 
     chunking: ChunkingConfig = ChunkingConfig()

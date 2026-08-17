@@ -37,9 +37,14 @@ def test_the_chunk_stage_writes_chunks_with_full_lineage(db, store, enqueued):
 
 
 def test_a_re_run_rebuilds_the_chunk_set_instead_of_duplicating_it(db, store, enqueued):
-    """Stage granularity is the whole stage, so it must be idempotent (§22)."""
+    """Stage granularity is the whole stage, so it must be idempotent (§22).
+
+    Identity is reconciled by ordinal, not recreated: the rows keep their ids so
+    the representations hanging off them survive the retry.
+    """
     version = enqueued()
     run_once(db, store, STAGES)
+    identities = [c.id for c in chunks_of(db, version)]
     first = [c.content_hash for c in chunks_of(db, version)]
 
     version.status = VersionStatus.PENDING
@@ -51,3 +56,4 @@ def test_a_re_run_rebuilds_the_chunk_set_instead_of_duplicating_it(db, store, en
     run_once(db, store, STAGES)
 
     assert [c.content_hash for c in chunks_of(db, version)] == first
+    assert [c.id for c in chunks_of(db, version)] == identities

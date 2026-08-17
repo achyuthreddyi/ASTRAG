@@ -52,7 +52,7 @@ class ChunkDraft:
 
 
 @lru_cache
-def _encoding(name: str):
+def token_encoding(name: str):
     return tiktoken.get_encoding(name)
 
 
@@ -60,7 +60,7 @@ def chunk_document(
     document: NormalizedDocument, config: ChunkingConfig | None = None
 ) -> list[ChunkDraft]:
     config = config or ChunkingConfig()
-    encoding = _encoding(config.tokenizer)
+    encoding = token_encoding(config.tokenizer)
     builder = _Builder(document.title, config, encoding)
 
     for block in document.blocks:
