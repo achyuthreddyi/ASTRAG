@@ -45,6 +45,39 @@ def decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
 
+def append_paragraphs(
+    blocks: list[Block], text: str, section: list[str], page: int | None = None
+) -> None:
+    """Split unstructured text into blocks and append them in source order.
+
+    `section` is mutated in place as headings are found, so a caller feeding one
+    page at a time keeps its section path across the page boundary.
+    """
+    for paragraph in re.split(r"\n\s*\n", text):
+        stripped = paragraph.strip()
+        if not stripped:
+            continue
+        if _looks_like_heading(stripped):
+            section[:] = [stripped]
+            blocks.append(
+                Block(id=block_id(len(blocks)), type=BlockType.HEADING, text=stripped,
+                      level=1, section_path=[], page=page)
+            )
+            continue
+        blocks.append(
+            Block(
+                id=block_id(len(blocks)),
+                type=BlockType.PARAGRAPH,
+                # A wrapped paragraph is one unit; the line breaks inside it are
+                # presentation, not structure.
+                text=" ".join(line.strip() for line in stripped.split("\n")),
+                level=1 if section else None,
+                section_path=list(section),
+                page=page,
+            )
+        )
+
+
 class TextParser(DocumentParser):
     """TXT: paragraph and order structure with minimal heading inference (§5)."""
 
@@ -52,29 +85,7 @@ class TextParser(DocumentParser):
 
     def parse(self, data: bytes, title: str) -> NormalizedDocument:
         blocks: list[Block] = []
-        section_path: list[str] = []
-        for paragraph in re.split(r"\n\s*\n", decode(data)):
-            text = paragraph.strip()
-            if not text:
-                continue
-            if _looks_like_heading(text):
-                section_path = [text]
-                blocks.append(
-                    Block(id=block_id(len(blocks)), type=BlockType.HEADING, text=text,
-                          level=1, section_path=[])
-                )
-                continue
-            blocks.append(
-                Block(
-                    id=block_id(len(blocks)),
-                    type=BlockType.PARAGRAPH,
-                    # A wrapped plain-text paragraph is one unit; the line breaks
-                    # inside it are presentation, not structure.
-                    text=" ".join(line.strip() for line in text.split("\n")),
-                    level=1 if section_path else None,
-                    section_path=list(section_path),
-                )
-            )
+        append_paragraphs(blocks, decode(data), [])
         return NormalizedDocument(title=title, blocks=blocks)
 
 
