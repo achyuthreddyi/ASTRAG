@@ -1,0 +1,136 @@
+{
+  "title": "timeline.md",
+  "blocks": [
+    {
+      "id": "b0000",
+      "type": "HEADING",
+      "text": "Roman Timeline",
+      "level": 1,
+      "section_path": [],
+      "page": null
+    },
+    {
+      "id": "b0001",
+      "type": "PARAGRAPH",
+      "text": "Dates before 45 BCE use the pre-Julian calendar.",
+      "level": 1,
+      "section_path": [
+        "Roman Timeline"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0002",
+      "type": "HEADING",
+      "text": "Republic",
+      "level": 2,
+      "section_path": [
+        "Roman Timeline"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0003",
+      "type": "LIST_ITEM",
+      "text": "509 BCE: the Republic is founded",
+      "level": 2,
+      "section_path": [
+        "Roman Timeline",
+        "Republic"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0004",
+      "type": "LIST_ITEM",
+      "text": "44 BCE: Caesar is assassinated",
+      "level": 2,
+      "section_path": [
+        "Roman Timeline",
+        "Republic"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0005",
+      "type": "HEADING",
+      "text": "Sources",
+      "level": 3,
+      "section_path": [
+        "Roman Timeline",
+        "Republic"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0006",
+      "type": "TABLE_TEXT",
+      "text": "| Author | Work | Date |",
+      "level": 3,
+      "section_path": [
+        "Roman Timeline",
+        "Republic",
+        "Sources"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0007",
+      "type": "TABLE_TEXT",
+      "text": "| Suetonius | Lives | c. 121 CE |",
+      "level": 3,
+      "section_path": [
+        "Roman Timeline",
+        "Republic",
+        "Sources"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0008",
+      "type": "PARAGRAPH",
+      "text": "Suetonius wrote roughly a century and a half after the events.",
+      "level": 3,
+      "section_path": [
+        "Roman Timeline",
+        "Republic",
+        "Sources"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0009",
+      "type": "UNKNOWN_TEXT",
+      "text": "raw fragment, not prose",
+      "level": 3,
+      "section_path": [
+        "Roman Timeline",
+        "Republic",
+        "Sources"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0010",
+      "type": "HEADING",
+      "text": "Empire",
+      "level": 2,
+      "section_path": [
+        "Roman Timeline"
+      ],
+      "page": null
+    },
+    {
+      "id": "b0011",
+      "type": "PARAGRAPH",
+      "text": "Augustus held power from 27 BCE until 14 CE.",
+      "level": 2,
+      "section_path": [
+        "Roman Timeline",
+        "Empire"
+      ],
+      "page": null
+    }
+  ],
+  "warnings": []
+}
