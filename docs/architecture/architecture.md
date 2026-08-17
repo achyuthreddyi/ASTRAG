@@ -6,7 +6,7 @@ This document describes the current accepted end-to-end architecture of ASTRAG a
 
 It contains only architecture accepted across stages. Stage-specific implementation details belong in `docs/stages/`, and significant architecture choices belong in `docs/architecture/decisions/`.
 
-Stage 1 defines the global behavioral contract. Stage 2 defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Stage 3 defines the accepted deterministic local retrieval architecture, temporal retrieval semantics, query-understanding boundary, and concurrent eligibility/cutover policy. Stage 4 defines the accepted bounded orchestration execution model, immutable evidence policy, provider-neutral web retrieval boundary, and Stage 4 → Stage 5 evidence-gathering contract. Stage 5 defines accepted evidence relationship/corroboration semantics, conflict/coverage/sufficiency semantics, provenance-safe context selection, and the Stage 5 → Stage 6 `GenerationContext` contract. Stage 6 owns prompt construction and grounded response generation.
+Stage 1 defines the global behavioral contract. Stage 2 defines the accepted ingestion lifecycle, temporal-evidence representation, publication boundary, and V1 persistence/search-storage foundation. Stage 3 defines the accepted deterministic local retrieval architecture, temporal retrieval semantics, query-understanding boundary, and concurrent eligibility/cutover policy. Stage 4 defines the accepted bounded orchestration execution model, immutable evidence policy, provider-neutral web retrieval boundary, and Stage 4 → Stage 5 evidence-gathering contract. Stage 5 defines accepted evidence relationship/corroboration semantics, conflict/coverage/sufficiency semantics, provenance-safe context selection, and the Stage 5 → Stage 6 `GenerationContext` contract. Stage 6 defines accepted grounded claim-support semantics, structured generation/validation, bounded repair, deterministic citation resolution, and the canonical generated-response boundary.
 
 ---
 
@@ -77,12 +77,22 @@ Retrieval            (when Web ON)
                 ▼
         GenerationContext
                 │
+                │ trusted runtime control
+                │ normalized presentation request
                 ▼
-       Grounded Generation
-       (prompt owned by Stage 6)
+        GenerationRequest
                 │
                 ▼
-Answer + Citations + Conflict / Uncertainty Disclosure
+ Structured Grounded Generation
+                │
+                ▼
+ Validation + Bounded Repair
+                │
+                ▼
+ Citation Resolution + Canonical GeneratedResponse
+                │
+                ▼
+ Approved Rendering / Delivery
 ```
 
 The diagram expresses logical responsibilities and accepted storage/evidence boundaries, not deployment topology or mandatory source-execution scheduling.
@@ -122,6 +132,8 @@ Stage 4 materializes this contract as an immutable request-scoped `EvidencePolic
 
 Stage 5 revalidates the immutable evidence boundary as defense in depth. Revalidation can reject invalid evidence but cannot expand or reduce the permitted source set.
 
+Stage 6 consumes only the evidence and structured evidence semantics delivered through `GenerationContext`. It cannot expand the legal evidence set, initiate retrieval, or use model memory/conversation as an independent factual source.
+
 ---
 
 ## Global Architectural Invariants
@@ -131,6 +143,8 @@ Stage 5 revalidates the immutable evidence boundary as defense in depth. Revalid
 Material factual claims must be grounded in retrieved evidence from sources allowed for the current query.
 
 Insufficient evidence is a valid answer state.
+
+Under ADR-014, Stage 6 enforces this at material atomic-proposition granularity through explicit claim-support bindings. Model pretraining may assist reasoning and language but cannot independently add material factual content.
 
 ### 2. Corpus Isolation
 
@@ -160,6 +174,8 @@ Web evidence retains external-source identity and acquisition/completeness seman
 
 Context selection or trimming may reduce text but must not erase or fabricate evidence identity, source spans, citation targets, or causal retrieval lineage.
 
+Stage 6 claim support resolves prompt-visible context IDs to authoritative evidence/provenance. Citation identities are application-owned and must not be invented by the model.
+
 ### 4. Temporal Information Is First-Class
 
 ASTRAG preserves and reasons over temporal information including:
@@ -183,6 +199,8 @@ Stage 4 preserves query-time temporal uncertainty through interpretation, reform
 
 Stage 5 preserves temporal origin, precision, certainty, multiple mentions, BCE/CE semantics, and unresolved state during selection and ordering. Approximate evidence must not become falsely exact merely to simplify chronological presentation.
 
+Stage 6 preserves typed temporal role, precision, certainty, and calendar ambiguity in final claims. Temporal derivations may preserve or reduce premise precision but never increase it. Relative-time resolution and BCE/CE arithmetic use authoritative reference time and deterministic temporal utilities when required rather than implicit provider runtime assumptions.
+
 ### 5. Conflict Preservation
 
 Conflicting evidence must not be silently collapsed into a single claim.
@@ -192,6 +210,8 @@ Stage 4 may use a structured possible-conflict signal to justify bounded additio
 Under ADR-012, Stage 5 owns final material conflict grouping and distinguishes factual, quantitative, temporal, and interpretation divergence from compatible detail. Stage 5 does not nominate a winning claim in V1.
 
 Conflict is orthogonal to sufficiency. Evidence may be sufficient to answer by accurately presenting a disagreement.
+
+Under ADR-014, Stage 6 must preserve material conflict semantics, bind competing claims to their respective evidence, and avoid inventing a winner when no accepted upstream authority/truth policy establishes one. User requests for a single definitive answer cannot override unresolved material conflict.
 
 ### 6. Duplicate Evidence Must Not Inflate Corroboration
 
@@ -215,11 +235,15 @@ UNKNOWN_DEPENDENCE
 
 Different documents, URLs, domains, corpora, or retrieval runs do not by themselves establish independent support. `UNKNOWN_DEPENDENCE` is not proof of derivation but is not counted as established independent corroboration.
 
+Stage 6 may describe corroboration as independent only when Stage 5 explicitly established independence. Alternate/derivative provenance may be cited but cannot masquerade as extra independent confirmation.
+
 ### 7. Short-Term Conversation Is Interpretive Context
 
 Short-term conversation may resolve references such as `that event` or `what happened next`.
 
 It is not an additional factual evidence source and cannot bypass the current query's corpus/web configuration.
+
+Stage 6 may receive approved conversation-derived presentation/interpretive context but not raw conversational factual claims as evidence. Compatible presentation preferences may carry across turns; factual assertions must still be grounded in current permitted evidence.
 
 ### 8. Graceful Evidence-Source Failure
 
@@ -230,6 +254,8 @@ If one configured source fails while another returns usable evidence, ASTRAG may
 Successful retrieval with no candidates/evidence must remain distinguishable from retrieval-system failure.
 
 Stage 4 preserves successful candidates, source-specific failure/degradation metadata, and first-class required-source execution status. Stage 5 preserves these statuses in `GenerationContext` independently from whether that source contributes selected context.
+
+Stage 6 must surface failure of a required source even when remaining evidence is otherwise sufficient. Evidence sufficiency and source-execution health remain separate dimensions.
 
 ### 9. Traceability and Evaluation
 
@@ -260,6 +286,13 @@ The architecture must make it possible to observe at least:
 - token allocation and final context order,
 - sufficiency assessment,
 - context presented to generation,
+- generation request / attempt identity,
+- prompt/policy/schema/renderer/provider/model version references,
+- provider transport/fallback attempt lineage,
+- generated claims and claim-support bindings,
+- validation reason codes and repair actions,
+- citation-resolution results,
+- canonical generated response status,
 - final citations,
 - ingestion/publication lineage,
 - latency,
@@ -408,13 +441,17 @@ Local and web evidence are data-plane inputs.
 
 Retrieved content cannot modify EvidencePolicy, source permissions, orchestration budgets, legal transitions, tool permissions, system/control instructions, or generation-control metadata.
 
-Stage 5 preserves this separation while assembling `GenerationContext`; Stage 9 adds defense in depth later.
+Stage 5 preserves this separation while assembling `GenerationContext`.
+
+Under ADR-015, Stage 6 explicitly separates trusted control/upstream semantics/user requests from untrusted evidence data. Prompt-like text inside evidence remains source content and cannot mutate prompt authority, output schema, retry ceilings, citation rules, or provider/tool permissions. Stage 9 adds further defense in depth later.
 
 ### 23. V1 Runtime State Is Ephemeral; Structured Trace State Survives
 
 Stage 4 runtime control state exists for the bounded request lifetime and does not require durable resume-from-checkpoint semantics in V1.
 
 Append-oriented structured trace information must survive sufficiently for Stage 7 evaluation and Stage 8 observability/debugging. Exact trace backend and retention are later implementation/production decisions.
+
+Stage 6 similarly uses bounded request/attempt runtime state and emits a structured `GenerationTrace`; hidden chain-of-thought persistence is not required.
 
 ### 24. Stage 5 Owns Final Evidence Relationship and Corroboration Semantics
 
@@ -499,18 +536,70 @@ Stage 5 may use exact passage selection/extractive trimming with explicit full-v
 
 V1 does not use generative/LLM evidence summarization as source evidence. Any future generated compression must be explicitly marked as derived text and preserve compression/provenance lineage through a reviewed architecture change.
 
-### 30. Stage 6 Owns Generation Prompt Construction
+### 30. Stage 6 Owns Prompt Construction and Assertion Semantics
 
 The accepted boundary is:
 
 ```text
 Stage 5: EvidenceGatheringResult → structured GenerationContext
-Stage 6: system/generation instructions + GenerationContext → grounded answer
+Stage 6: GenerationContext + trusted control + presentation request → validated canonical response
 ```
 
-Stage 6 owns system/generation prompt construction, grounding instructions, response-format instructions, final citation-rendering instructions, natural-language answer generation, and user-facing conflict/uncertainty/partial-answer wording.
+Stage 5 owns evidence semantics. Stage 6 owns assertion/response semantics under those constraints: prompt construction, claim formation/support binding, bounded derivation, disclosure wording, structured generation, citation binding/rendering, and canonical response construction.
 
-Stage 5 does not own final prompt construction or user-facing prose.
+Stage 6 may omit redundant/nonessential selected evidence from final prose and may reorder presentation, but it cannot perform a second evidence-ranking/selection process that changes Stage 5 material assembly semantics.
+
+### 31. Stage 6 Sufficiency and Certainty Are Monotonic
+
+Under ADR-014, Stage 6 may become more conservative than the Stage 5 evidence state but never more certain.
+
+`PARTIALLY_SUFFICIENT` cannot become a fully supported answer; `INSUFFICIENT` cannot become a factual answer to unsupported requested propositions. Conflict, temporal uncertainty, dependence uncertainty, and required-source failure cannot be silently washed out during prose generation.
+
+### 32. Generation Uses Structured Output and Deterministic Validation
+
+Under ADR-015, the normal V1 path uses one structured semantic generation call followed by deterministic validation rather than an open-ended writer/verifier loop.
+
+Validation is layered across schema, referential, grounding/known-semantic invariants, and final presentation/citation integrity. Model-declared support/status fields are proposals; deterministic validation is authoritative.
+
+No user-visible semantic answer content is released before validation succeeds.
+
+### 33. Generation and Transport Retry Are Bounded and Distinct
+
+Stage 6 separates provider transport attempts from semantic generation attempts.
+
+Transient transport failures may retry boundedly. Semantic repair permits safe deterministic repair and at most one constrained repair-generation call over the same `GenerationContext`. Repair cannot widen evidence scope or initiate retrieval.
+
+After exhaustion, Stage 6 fails closed rather than returning the least-invalid model output.
+
+### 34. Citation Identity Is Deterministic and Provenance-Backed
+
+Under ADR-016, internal citation binding is claim-level. The model may bind claims only to enumerated context IDs; application code resolves these to authoritative evidence/provenance and creates citation identities.
+
+User-facing citations may aggregate naturally at sentence/paragraph boundaries, but competing conflict claims and material derivation premises retain unambiguous support.
+
+Citation display degradation is distinct from missing grounding identity. Missing authoritative support identity is a grounding failure; incomplete display metadata may produce a disclosed degraded response when support remains valid.
+
+### 35. Canonical GeneratedResponse Precedes Renderer-Specific Output
+
+Stage 6 emits a structured canonical `GeneratedResponse` containing answer blocks, claims, citations, disclosures, sufficiency, generation status/degradation, presentation normalization, and version metadata.
+
+Markdown, API, CLI, or other forms are deterministic renderings of the canonical semantics. Once validated, downstream stages may render, redact observability/storage views, block, or refuse delivery but must not silently alter factual claims, citation meaning, conflict semantics, or sufficiency.
+
+### 36. Provider Boundary Is Semantic-Contract Neutral
+
+Stage 6 uses a provider-neutral generation contract with thin provider adapters. Provider APIs may differ in message/schema mechanisms, token counting, transport behavior, and native error details, but may not redefine ASTRAG grounding/citation/conflict/sufficiency semantics.
+
+Provider fallback is allowed only through explicitly configured compatible profiles and must remain traceable.
+
+### 37. Stage 7/8/9/10 Cannot Re-own Generation Semantics
+
+Stage 7 evaluates structured Stage 6 artifacts and owns benchmark methodology/thresholds; it is not an always-on V1 live response judge.
+
+Stage 8 observes Stage 6 lifecycle/trace data and is not factual evidence authority.
+
+Stage 9 may block or tighten behavior but cannot weaken accepted evidence grounding, data/control separation, citation integrity, or sufficiency monotonicity.
+
+Stage 10 owns serving/transport/deployment and delivery of approved renderings; it does not silently rewrite canonical response semantics.
 
 ---
 
@@ -695,6 +784,40 @@ Stage 5 emits `GenerationContext` under ADR-013. Required-source statuses, failu
 
 ---
 
+## Accepted Stage 6 Generation Architecture
+
+### Generation input/control boundary
+
+Stage 6 wraps the accepted `GenerationContext` with trusted runtime control and normalized presentation state in a `GenerationRequest`.
+
+Authoritative query reference time/timezone, generation/prompt/schema/renderer/provider/model version references, token/output constraints, and provider configuration belong to Stage 6 trusted control rather than Stage 5 evidence semantics.
+
+ADR-013 therefore remains valid without a V1 semantic amendment.
+
+### Claim-support and response semantics
+
+Stage 6 emits atomic material claims bound to enumerated `ContextItem` IDs. Deterministic code resolves these to authoritative evidence/provenance.
+
+Direct support and bounded derived support are distinct. Material world claims, evidence-state claims, conflict claims, and temporal derivations remain structurally distinguishable for validation/evaluation.
+
+### Structured generation and repair
+
+The normal path uses one structured generation call. Deterministic validation owns schema/referential/known grounding invariants. Safe deterministic repair is attempted where possible; otherwise at most one constrained repair generation is allowed over the same `GenerationContext`.
+
+Provider transport retry is separately bounded. Generation fails closed after exhaustion.
+
+### Citation and canonical response
+
+Citation IDs are application-owned and resolve from validated claim support to authoritative provenance. Claim-level internal citation binding may render at natural sentence/paragraph boundaries when unambiguous.
+
+Stage 6 builds a canonical structured `GeneratedResponse` before renderer-specific output. Semantic response state, Stage 5 sufficiency, and Stage 6 execution status remain separate.
+
+### Evaluation and observability handoff
+
+Stage 6 exposes structured request/result/claim/support/citation/validation/repair/version artifacts for Stage 7 evaluation and Stage 8 observability. Hidden chain-of-thought is not required.
+
+---
+
 ## V1 Persistence and Search Storage
 
 ADR-004 establishes the persistence boundary:
@@ -772,17 +895,21 @@ PostgreSQL search indexes remain derived projections rather than canonical evide
    - performs no new retrieval in V1.
 
 9. **Grounded Generation (Stage 6)**
-   - consumes `GenerationContext`,
-   - constructs system/generation prompts and grounding instructions,
-   - generates supported full/partial/insufficient responses,
-   - exposes conflicts/uncertainty and retrieval limitations,
-   - renders final citations,
-   - owns user-facing response formatting.
+   - consumes authoritative `GenerationContext` plus trusted runtime/presentation control,
+   - constructs typed/versioned prompts with evidence isolated as untrusted data,
+   - emits structured material claims bound to context/evidence,
+   - preserves conflict, uncertainty, temporal precision, source-failure, and sufficiency semantics,
+   - validates structured output before release,
+   - owns bounded deterministic/semantic repair,
+   - resolves deterministic provenance-backed citations,
+   - emits canonical `GeneratedResponse`, approved renderings, and `GenerationExecutionResult`,
+   - performs no retrieval or arbitrary external tool execution in V1.
 
 10. **Evaluation + Observability**
    - measures component/end-to-end quality,
-   - traces source configuration, ingestion publication, retrieval state/ranking, orchestration execution, context-assembly decisions, and generation outputs,
-   - tracks latency/cost.
+   - traces source configuration, ingestion publication, retrieval state/ranking, orchestration execution, context-assembly decisions, generation attempts/validation/repair/claim/citation artifacts, and canonical outputs,
+   - tracks latency/cost,
+   - does not become factual evidence authority or hidden chain-of-thought storage.
 
 These are logical boundaries. Service/process boundaries, frameworks, providers, and production deployment topology remain undecided except where an accepted ADR states otherwise.
 
@@ -819,8 +946,10 @@ Query + Selected Corpora + Web OFF
 → EvidenceGatheringResult
 → Stage 5 relationship/conflict/coverage/sufficiency/context assembly
 → GenerationContext
-→ Stage 6 prompt construction + grounded generation
-→ Answer + Local Citations
+→ GenerationRequest
+→ structured generation + validation/bounded repair
+→ deterministic citation resolution + canonical GeneratedResponse
+→ approved rendering with local citations
 ```
 
 ### Hybrid query
@@ -834,8 +963,10 @@ Query + Selected Corpora + Web ON
 → EvidenceGatheringResult with required-source + per-run lineage
 → Stage 5 relationship/conflict/coverage/sufficiency/context assembly
 → GenerationContext with selected evidence + source failure/degradation state
-→ Stage 6 prompt construction + grounded generation
-→ Answer + Local/Web Citations
+→ GenerationRequest
+→ structured generation + validation/bounded repair
+→ deterministic local/web citation resolution
+→ canonical GeneratedResponse + approved rendering
 ```
 
 ### Web-only query
@@ -849,8 +980,10 @@ Query + Web ON + No Corpus
 → EvidenceGatheringResult
 → Stage 5 evidence assessment/context assembly
 → GenerationContext
-→ Stage 6 prompt construction + grounded generation
-→ Answer + Web Citations
+→ GenerationRequest
+→ structured generation + validation/bounded repair
+→ deterministic web citation resolution
+→ canonical GeneratedResponse + approved rendering
 ```
 
 ---
@@ -875,7 +1008,12 @@ Current accepted assumptions:
 - no mandatory durable orchestration workflow engine in V1,
 - bounded Stage 5 candidate sets,
 - no generative evidence summarization in Stage 5 V1,
-- no Stage 5 new-retrieval/adjacent-fetch behavior in V1.
+- no Stage 5 new-retrieval/adjacent-fetch behavior in V1,
+- one normal Stage 6 semantic generation call plus at most one bounded repair-generation call,
+- provider transport retries are separately bounded,
+- no user-visible semantic generation streaming before validation in V1,
+- no Stage 6 retrieval, source-authority ranking, open-ended writer/verifier loop, or arbitrary external tool execution,
+- canonical Stage 6 response semantics precede renderer/serving-specific representation.
 
 These assumptions constrain later designs without requiring premature distributed infrastructure.
 
@@ -913,6 +1051,30 @@ Stage 5 implementation must validate at least:
 
 Exact Stage 5 token budgets, ranking weights, relationship/conflict/coverage classifiers, and model assistance choices remain implementation/evaluation configuration.
 
+### Stage 6
+
+Stage 6 implementation must validate at least:
+
+- zero illegal evidence-source expansion,
+- structurally detectable unsupported material claims are rejected,
+- Stage 5 sufficiency is never upgraded,
+- material conflict/required-source failure disclosure is not silently suppressed,
+- temporal precision/certainty is not strengthened,
+- conflicting exact dates are not silently turned into synthetic ranges,
+- derived claims bind their material premises,
+- derivative/unknown-dependence evidence is not falsely labeled independent,
+- model-invented context/citation identities cannot pass referential validation,
+- citation IDs resolve only to authoritative provenance,
+- no user-visible semantic content is released before validation,
+- semantic generation attempts and provider transport retries are independently bounded,
+- repair exhaustion fails closed,
+- deterministic components reproduce identical results for identical input/version,
+- provider/model/prompt/schema/renderer/fallback version lineage is traceable,
+- target-channel output is sanitized,
+- evaluation/observability artifacts do not require hidden chain-of-thought.
+
+Deeper semantic claim-support correctness, citation correctness, temporal answer quality, partial/insufficient answer quality, repair effectiveness, and generation latency/token/cost are Stage 7 benchmark concerns.
+
 ---
 
 ## Decisions Intentionally Deferred
@@ -941,7 +1103,12 @@ The following remain owned by later implementation/stages or benchmark-triggered
 - generative evidence compression unless separately reviewed,
 - source-authority/trust ranking,
 - generation model/provider,
-- concrete Stage 6 prompt architecture details within the accepted Stage 6 ownership boundary,
+- exact Stage 6 prompt wording/template text,
+- exact Stage 6 schema serialization/types and provider SDK integration,
+- exact token reserve/safety-margin values,
+- exact bounded transport retry counts/backoff/timeouts,
+- concrete approved renderer styles,
+- raw provider/prompt/evidence trace retention/redaction policy,
 - exact external API schema,
 - caching,
 - artifact retention/garbage collection,
@@ -967,6 +1134,9 @@ When one of these materially changes global architecture, the owning stage must 
 - `ADR-011-evidence-relationship-and-corroboration-semantics.md` — Stage 5 distinguishes identity, exact duplicate, derivative, independent, and unknown dependence so copied/repeated evidence cannot inflate corroboration.
 - `ADR-012-conflict-coverage-and-sufficiency-model.md` — Stage 5 owns material conflict grouping, semantic coverage, and semantic sufficiency while keeping conflict orthogonal to answerability and source authority out of V1.
 - `ADR-013-generation-context-and-stage-5-stage-6-boundary.md` — Stage 5 emits structured GenerationContext; Stage 6 owns generation prompt construction, grounded answer synthesis, and final citation rendering.
+- `ADR-014-grounded-generation-and-claim-support-contract.md` — Stage 6 treats Stage 5 evidence semantics as authoritative and requires material claims/derivations to remain evidence-bound, sufficiency-monotonic, conflict-preserving, and temporally faithful.
+- `ADR-015-structured-generation-validation-and-bounded-repair.md` — Stage 6 uses provider-neutral structured generation with deterministic validation, bounded transport/semantic attempts, safe repair, and validate-before-release behavior.
+- `ADR-016-citation-binding-and-canonical-response-contract.md` — citation identity is deterministically resolved from claim support/provenance and Stage 6 emits an immutable canonical GeneratedResponse before renderer-specific output.
 
 ---
 
@@ -977,8 +1147,8 @@ When one of these materially changes global architecture, the owning stage must 
 - **Stage 3** owns deterministic query-time local retrieval, selected-corpus enforcement, authoritative eligibility/cutover handling, dense/lexical/temporal candidate retrieval, same-chunk consolidation, RRF/bounded retrieval ranking, and retrieval-specific failures/degradation.
 - **Stage 4** owns Query + Temporal Understanding coordination, immutable EvidencePolicy enforcement, bounded adaptive orchestration, independent mandatory local/web execution, provider-neutral web retrieval coordination, bounded replanning/reformulation/decomposition, budgets/stopping, structured traces, and the EvidenceGatheringResult handoff. It does not own final evidence sufficiency, semantic deduplication/corroboration, or final conflict grouping.
 - **Stage 5** owns final evidence-policy/provenance revalidation, semantic relationship/deduplication/corroboration, material conflict grouping, semantic coverage, final evidence sufficiency, context diversity/ordering/token budgeting, extractive selection, and the `GenerationContext` handoff. It does not perform new retrieval in V1 or construct the final generation prompt.
-- **Stage 6** owns system/generation prompt construction, grounded response generation, user-facing conflict/uncertainty/partial-answer wording, final response formatting, and citation rendering from `GenerationContext`.
-- **Stage 7** formalizes evaluation including accepted Stage 3 retrieval/race/temporal benchmarks, Stage 4 policy/trajectory/rewrite/retry/stopping evaluation, and Stage 5 relationship/conflict/coverage/sufficiency/context-selection evaluation.
-- **Stage 8** formalizes end-to-end tracing and operational observability including Stage 3 state/ranking traces, Stage 4 structured orchestration traces, and Stage 5 structured assembly decisions.
-- **Stage 9** adds reliability/guardrails, including stale evidence, timeout, loop/budget enforcement, tool-contract validation, and retrieved-content/prompt-injection protections, without weakening evidence boundaries or data/control separation.
-- **Stage 10** defines production serving/scaling and may evolve worker/search/orchestration/context/generation deployment topology, durable workflows, queues, and horizontal scaling while preserving accepted semantic boundaries.
+- **Stage 6** owns trusted generation-request/control construction, presentation normalization, typed/versioned prompt construction, evidence-bound claim generation, bounded derivation, deterministic validation/repair control, claim/citation binding, conflict/uncertainty/partial-answer wording, canonical `GeneratedResponse`, approved rendering semantics, and structured generation traces. It does not retrieve new evidence, rerank Stage 5 context, invent source authority, or stream unvalidated semantic output in V1.
+- **Stage 7** formalizes evaluation including accepted Stage 3 retrieval/race/temporal benchmarks, Stage 4 policy/trajectory/rewrite/retry/stopping evaluation, Stage 5 relationship/conflict/coverage/sufficiency/context-selection evaluation, and Stage 6 claim-support/citation/conflict/temporal/sufficiency/repair/output-quality evaluation. It does not become an always-on V1 live-response judge.
+- **Stage 8** formalizes end-to-end tracing and operational observability including Stage 3 state/ranking traces, Stage 4 structured orchestration traces, Stage 5 structured assembly decisions, and Stage 6 request/provider/validation/repair/citation/response lifecycle events. Observability is not factual evidence authority.
+- **Stage 9** adds reliability/guardrails, including stale evidence, timeout, loop/budget enforcement, tool-contract validation, retrieved-content/prompt-injection protections, and further response controls without weakening evidence boundaries, grounding, citation integrity, sufficiency monotonicity, or data/control separation.
+- **Stage 10** defines production serving/scaling and may evolve worker/search/orchestration/context/generation deployment topology, durable workflows, queues, horizontal scaling, and transport/render delivery while preserving the canonical Stage 6 response semantics and all accepted semantic boundaries.

@@ -141,31 +141,66 @@ The goal is to provide Stage 6 with the smallest useful and highest-quality evid
 
 ## 6. Generation Layer
 
-Build the final response-generation layer.
+Transform the Stage 5 `GenerationContext` into a validated, evidence-grounded canonical response without recomputing upstream evidence semantics.
 
 Typical flow:
 
 ```text
-Original / Resolved Question
-+ GenerationContext
-+ System / Generation Instructions
+GenerationContext
++ trusted GenerationControl
++ normalized PresentationRequest
         ↓
-       LLM
+GenerationRequest
         ↓
-Grounded Final Answer
+Versioned Prompt Construction
+        ↓
+Provider-Neutral Structured Generation
+        ↓
+GenerationResult
+        ↓
+Schema / Referential / Grounding Validation
+        ↓
+Safe Deterministic Repair
+        ↓
+At Most One Bounded Repair Generation
+        ↓
+Citation Resolution
+        ↓
+Canonical GeneratedResponse
+        ↓
+Rendering / Presentation Validation
+        ↓
+GenerationExecutionResult
 ```
 
-Define:
-- System and generation prompt construction
-- Grounding instructions
-- Structured outputs
-- Citation behaviour and final citation rendering
-- Response formatting
-- Conflict / uncertainty / partial-answer wording
-- "I don't know" behaviour
-- Unsupported-answer handling
+Responsibilities:
+- Treat Stage 5 relationship/conflict/coverage/sufficiency semantics as authoritative
+- Require material factual propositions to bind to permitted evidence
+- Distinguish direct claims from bounded evidence-grounded derivations
+- Preserve conflict, uncertainty, temporal precision, and required-source failures
+- Construct typed/versioned generation prompts with retrieved evidence isolated as untrusted data
+- Normalize compatible user presentation/schema requests without allowing them to weaken grounding
+- Maintain a provider-neutral structured-output boundary
+- Validate model output deterministically before release
+- Apply safe deterministic repair and at most one bounded semantic repair generation
+- Keep transport retries separate and bounded
+- Resolve claim support to deterministic provenance-backed citation identities
+- Produce a canonical structured `GeneratedResponse` independent of Markdown/API/CLI transport
+- Render/sanitize approved user-facing response forms
+- Emit structured generation/evaluation/observability artifacts and version lineage
+- Fail closed when grounded output cannot be produced safely
 
-Stage 6 consumes the structured Stage 5 `GenerationContext`; it does not re-own evidence deduplication, corroboration, conflict grouping, coverage, or final evidence sufficiency.
+Stage 6 does **not**:
+- initiate retrieval or adjacent-context fetching,
+- rerank/reselect Stage 5 evidence as a second context-assembly stage,
+- upgrade Stage 5 evidence sufficiency,
+- invent source-authority/trust rankings,
+- use model memory as an independent factual evidence source,
+- run open-ended agentic writer/verifier loops,
+- stream unvalidated semantic answer content to the user in V1,
+- execute arbitrary tools/side effects beyond the configured generation-provider call.
+
+The Stage 6 output is a canonical structured response plus execution/trace metadata. Stage 7 evaluates it; Stage 8 observes it; Stage 9 may add stricter guardrails without weakening grounding; Stage 10 delivers compatible renderings without mutating answer semantics.
 
 ---
 
@@ -189,13 +224,20 @@ Evaluate:
 - Context assembly quality
 - Answer correctness
 - Faithfulness
-- Hallucination rate
-- Citation correctness
+- Hallucination / unsupported-claim rate
+- Claim-support correctness
+- Citation binding and rendering correctness
+- Conflict / uncertainty preservation
+- Temporal precision preservation
+- Sufficiency compliance
+- Generation schema/repair/failure behaviour
 - Tool selection
 - Agent trajectory
 - Latency
 - Token usage
 - Cost
+
+Stage 7 consumes structured Stage 6 artifacts such as claim-support bindings, citation bindings, validation outcomes, repair history, version references, and canonical responses. Stage 7 is evaluative in V1 and does not become an always-on live response judge or rewriting layer.
 
 Evaluation should be introduced early and continuously expanded while the system is being built.
 
@@ -203,29 +245,33 @@ Evaluation should be introduced early and continuously expanded while the system
 
 ## 8. Observability & Debugging
 
-Add end-to-end tracing so that every agent decision can be inspected.
+Add end-to-end tracing so that every material system decision can be inspected.
 
 Track:
 
 ```text
 Query
  ↓
-Agent Decision
+Agent Decision / Retrieval Runs
  ↓
-Tool Calls
+Retrieved Evidence
  ↓
-Retrieved Documents
+Context Assembly Decisions
  ↓
-Reranker Scores
+GenerationRequest + Version Refs
  ↓
-Constructed Context
+Provider / Generation Attempts
  ↓
-LLM Request
+Validation + Repair Outcomes
  ↓
-LLM Response
+Claim / Citation Bindings
+ ↓
+Canonical GeneratedResponse
  ↓
 Tokens / Latency / Cost
 ```
+
+Stage 8 formalizes structured Stage 6 lifecycle events and trace retention/redaction. Observability data is not factual evidence authority, and hidden chain-of-thought persistence is not required.
 
 Observability should make it possible to understand why a request succeeded or failed.
 
@@ -247,6 +293,8 @@ Handle:
 - Prompt injection
 - Malicious retrieved content
 - Unsupported answers
+
+Stage 9 may add stricter cross-cutting controls, blocking, and reliability policies, but it must not weaken accepted evidence grounding, citation integrity, evidence-as-data separation, sufficiency monotonicity, or fail-closed generation behaviour.
 
 The goal is predictable system behaviour even when individual components fail.
 
@@ -285,6 +333,8 @@ Production concerns:
 - Logging
 - Deployment
 - Cost controls
+
+Stage 10 owns transport/deployment topology and delivery of approved response renderings. It must preserve the semantic content of the validated Stage 6 canonical `GeneratedResponse`.
 
 ---
 
