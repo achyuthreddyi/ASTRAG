@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -71,6 +71,8 @@ A different URL, domain, document, corpus, or retrieval run is not by itself evi
 ### Unknown dependence
 
 If dependence cannot be safely established, Stage 5 records `UNKNOWN_DEPENDENCE` rather than assuming independence.
+
+`UNKNOWN_DEPENDENCE` is not proof that sources are derivative. It is a conservative statement that independence has not been established. Such evidence may remain useful and separately cited, but it is not counted as established independent corroboration.
 
 Stage 6 may refer to such evidence as multiple sources but must not claim they are multiple independent sources solely from source count.
 
@@ -142,7 +144,7 @@ Evidence independence and factual authority are separate concepts.
 - Stage 5 must analyze relationships beyond simple identity/hash equality.
 - Derivative-source classification may be uncertain and implementation-sensitive.
 - Conservative handling may undercount some genuinely independent sources when dependence cannot be established.
-- Relationship groups add metadata to the Stage 5 -> Stage 6 contract.
+- Relationship groups add metadata to the Stage 5 → Stage 6 contract.
 
 ## Alternatives Considered
 
