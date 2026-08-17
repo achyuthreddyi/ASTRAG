@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://astrag:astrag@localhost:5433/astrag"
 
     artifact_store_root: Path = Path("var/artifacts")
+    # Cheap synchronous upload validation (§18): reject before hashing.
+    max_upload_bytes: int = 10 * 1024 * 1024
 
     # "fake" is deterministic and offline: tests and evaluation runs use it.
     embedding_provider: Literal["openai", "fake"] = "fake"

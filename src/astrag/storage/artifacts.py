@@ -12,7 +12,10 @@ import hashlib
 import os
 import re
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
+
+from astrag.settings import get_settings
 
 _KEY = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}$")
 
@@ -62,3 +65,9 @@ class LocalArtifactStore(ArtifactStore):
         if not _KEY.match(key):
             raise ValueError(f"malformed artifact key: {key!r}")
         return self._root / key
+
+
+@lru_cache
+def get_artifact_store() -> ArtifactStore:
+    """FastAPI dependency. Tests override this with a temporary root."""
+    return LocalArtifactStore(get_settings().artifact_store_root)

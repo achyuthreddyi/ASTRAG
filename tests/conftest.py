@@ -10,10 +10,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from astrag.api.app import app
 from astrag.settings import get_settings
+from astrag.storage.artifacts import LocalArtifactStore, get_artifact_store
+from astrag.storage.database import get_db
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,3 +43,18 @@ def db(engine):
         yield session
     transaction.rollback()
     connection.close()
+
+
+@pytest.fixture
+def store(tmp_path):
+    return LocalArtifactStore(tmp_path)
+
+
+@pytest.fixture
+def client(db, store):
+    """API client sharing the test transaction, so endpoint commits still roll back."""
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_artifact_store] = lambda: store
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
