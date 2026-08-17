@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -113,7 +113,7 @@ CoverageUnit
 - conflicts_present
 - supporting_evidence_ids[]
 - missing_aspects[]
-- source/task_lineage[]
+- source_task_lineage[]
 ```
 
 Per-unit support states are:
