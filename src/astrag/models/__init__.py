@@ -10,6 +10,12 @@ from astrag.models.lifecycle import (
     SearchRepresentationGeneration,
     VersionStatus,
 )
+from astrag.models.temporal import (
+    TemporalCertainty,
+    TemporalMention,
+    TemporalOrigin,
+    TemporalPrecision,
+)
 
 __all__ = [
     "ActiveGenerationPointer",
@@ -23,5 +29,9 @@ __all__ = [
     "JobState",
     "ProcessingGeneration",
     "SearchRepresentationGeneration",
+    "TemporalCertainty",
+    "TemporalMention",
+    "TemporalOrigin",
+    "TemporalPrecision",
     "VersionStatus",
 ]
