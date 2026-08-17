@@ -1,16 +1,16 @@
-# ADR-013: GenerationContext and Stage 5 -> Stage 6 Boundary
+# ADR-013: GenerationContext and Stage 5 → Stage 6 Boundary
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
 Stage 4 returns a structured `EvidenceGatheringResult` containing retrieval-run lineage, evidence candidates, failures, degradation, interpretation assumptions, and the immutable evidence policy. Stage 5 must transform that result into final evidence context for Stage 6.
 
-Without a formal Stage 5 -> Stage 6 contract, Stage 6 would be forced to rediscover duplicate/corroboration relationships, conflicts, question coverage, source failures, and sufficiency directly from raw evidence. That would duplicate Stage 5 responsibilities and make generation behavior less reproducible.
+Without a formal Stage 5 → Stage 6 contract, Stage 6 would be forced to rediscover duplicate/corroboration relationships, conflicts, question coverage, source failures, and sufficiency directly from raw evidence. That would duplicate Stage 5 responsibilities and make generation behavior less reproducible.
 
-The repository roadmap historically lists prompt construction under Stage 5, while Stage 6 is responsible for system prompts, grounding instructions, structured outputs, citation behavior, response formatting, and unsupported-answer handling. This creates an ambiguous ownership boundary.
+The repository roadmap historically listed prompt construction under Stage 5, while Stage 6 is responsible for system prompts, grounding instructions, structured outputs, citation behavior, response formatting, and unsupported-answer handling. Splitting prompt ownership across the two stages creates an unnecessary and ambiguous boundary.
 
 Several viable designs exist:
 
@@ -21,7 +21,7 @@ Several viable designs exist:
 
 ## Decision
 
-ASTRAG adopts a formal structured `GenerationContext` as the Stage 5 -> Stage 6 handoff.
+ASTRAG adopts a formal structured `GenerationContext` as the Stage 5 → Stage 6 handoff.
 
 Stage 5 owns final evidence assembly and evidence semantics. Stage 6 consumes that structured result for grounded natural-language generation.
 
@@ -50,6 +50,8 @@ GenerationContext
 
 The exact concrete schema may evolve without changing this ADR as long as these semantics remain available.
 
+Stage 6 must not depend on Stage 5-internal scoring formulas, ranking implementation details, or arbitrary observability fields unless a future contract explicitly promotes them.
+
 ### ContextItem
 
 Each selected context item conceptually includes:
@@ -67,18 +69,18 @@ ContextItem
 - coverage_unit_ids[]
 - evidence_relationship_group_id?
 - conflict_group_ids[]
-- selection_reasons[]
-- ordering_metadata
 - retrieval_lineage_refs[]
 ```
 
 `text_extent` distinguishes at least full evidence text from provenance-preserving extracted text. Extracted text must remain traceable to the source span and must not masquerade as full source content.
 
+Selection and ordering rationale may remain in `assembly_metadata`/observability rather than becoming mandatory prompt-visible fields.
+
 ### Stage 6 does not require raw Stage 4 runs
 
-Normal Stage 6 generation should not consume the complete raw Stage 4 retrieval-run graph.
+Normal Stage 6 generation does not consume the complete raw Stage 4 retrieval-run graph.
 
-Stage 5 preserves stable lineage references sufficient to trace each selected context item back through Stage 4 for evaluation/debugging. Full Stage 4 traces remain available to observability systems rather than being stuffed into every generation request.
+Stage 5 preserves stable lineage references sufficient to trace each selected context item back through Stage 4 for evaluation/debugging. Full Stage 4 traces remain available to observability systems rather than being included in every generation request.
 
 ### Structured evidence semantics reach Stage 6
 
@@ -98,9 +100,9 @@ Stage 6 should not be required to rederive these decisions from prose.
 
 ### Required source status is independent from selected context
 
-A required local/web source may have been attempted, failed, degraded, or returned weak/redundant evidence that contributes no final `ContextItem`.
+A required local/web source may have been attempted, failed, degraded, returned no candidates, or returned weak/redundant evidence that contributes no final `ContextItem`.
 
-Its execution/degradation state still propagates in `GenerationContext` so Stage 6 can disclose relevant retrieval limitations without forcing weak evidence into the final context merely for symmetry.
+Its execution/degradation state still propagates in `GenerationContext` so Stage 6 can disclose relevant retrieval limitations without forcing weak evidence into final context merely for symmetry.
 
 ### Provenance and citation support
 
@@ -145,19 +147,17 @@ This prevents retrieval insufficiency from being confused with context-assembly 
 
 ### Prompt-construction boundary
 
-Subject to orchestrator acceptance, Stage 5 owns structured context only.
-
-The proposed boundary is:
+The accepted ownership boundary is:
 
 ```text
 Stage 5
-EvidenceGatheringResult -> GenerationContext
+EvidenceGatheringResult → GenerationContext
 
 Stage 6
-System/generation instructions + GenerationContext -> grounded answer
+System/generation instructions + GenerationContext → grounded answer
 ```
 
-Under this boundary, Stage 6 owns:
+Stage 6 owns:
 
 - system/generation prompt construction,
 - grounding instructions,
@@ -166,9 +166,9 @@ Under this boundary, Stage 6 owns:
 - natural-language answer generation,
 - user-facing conflict/uncertainty/partial-answer wording.
 
-Stage 5 must not convert retrieved evidence into control-plane instructions. Retrieved content remains data.
+Stage 5 owns structured evidence semantics only and must not convert retrieved evidence into control-plane instructions. Retrieved content remains data.
 
-Because `stages.md` currently lists prompt construction under Stage 5, this ownership clarification requires orchestrator review and corresponding roadmap/global-architecture documentation updates before acceptance.
+The roadmap and global architecture must reflect this boundary.
 
 ### V1 context transformation boundary
 
@@ -189,13 +189,13 @@ If the context budget cannot safely represent minimum material evidence, conflic
 - Assembly failures are distinguishable from evidence insufficiency.
 - Full Stage 4 traces need not consume generation-context tokens.
 - Prompt/control instructions remain structurally separate from retrieved data.
+- Prompt ownership is no longer split ambiguously between Stages 5 and 6.
 
 ### Negative
 
 - `GenerationContext` is a richer contract than a flat passage list.
 - Stage 5 must maintain stable evidence-to-lineage references.
 - Stage 6 depends on the semantic contract established by Stage 5.
-- Moving prompt construction to Stage 6 requires a roadmap/global-architecture clarification.
 - Future changes to citation/claim-support granularity may require extending `ContextItem` metadata.
 
 ## Alternatives Considered
@@ -210,7 +210,7 @@ Rejected because it loses structured conflicts, dependency semantics, coverage, 
 
 ### Stage 5 builds final prompt
 
-Viable under the historical wording of `stages.md`, but rejected as the preferred boundary because Stage 6 already owns system prompts, grounding instructions, response formatting, citation behavior, and generation semantics. Splitting prompt ownership across stages creates unnecessary coupling.
+Rejected because Stage 6 already owns system prompts, grounding instructions, response formatting, citation behavior, and generation semantics. Splitting prompt ownership across stages creates unnecessary coupling.
 
 ### Stage 6 recomputes sufficiency
 
@@ -228,7 +228,7 @@ Revisit this ADR if:
 - generated evidence compression is introduced,
 - context assembly is merged with generation for measured latency reasons,
 - future generation architectures require streamed/incremental context,
-- prompt ownership changes again because of a new model/runtime architecture,
+- prompt ownership changes because of a materially different model/runtime architecture,
 - citation integrity requires a richer Stage 5 support mapping.
 
 ## Affected Stages
