@@ -2,17 +2,15 @@
 
 ## Status
 
-**Architecture Ready — Awaiting Orchestrator Review.**
+**Implementation Ready.**
 
-Stage 5 semantics have been consolidated in this document. Stage 5 must not be marked **Implementation Ready** until proposed ADR-011, ADR-012, ADR-013, the Stage 4 contract deltas, and the prompt-construction ownership clarification are reviewed and accepted by the orchestrator.
-
-Stage 5 is designed against the current Stage 4 working contract on `agent/stage-4-orchestration-architecture`. Stage 4 itself is still Architecture Ready and ADR-009/ADR-010 are still Proposed, so Stage 5 must reconcile against their accepted forms before implementation.
+Orchestrator review is complete. ADR-011, ADR-012, and ADR-013 are accepted. Stage 5 is reconciled against the accepted Stage 4 contract in ADR-010 and the global Stage 5 invariants are recorded in `docs/architecture/architecture.md`.
 
 ## Objective
 
-Transform a completed Stage 4 `EvidenceGatheringResult` into the smallest safe, provenance-complete, temporally coherent, conflict-preserving, duplicate-aware structured context package required for Stage 6 grounded generation.
+Transform a completed Stage 4 `EvidenceGatheringResult` into the smallest safe, provenance-complete, temporally coherent, conflict-preserving, duplicate-aware structured `GenerationContext` required for Stage 6 grounded generation.
 
-Stage 5 is the final evidence-preparation boundary before generation. It determines what gathered evidence is usable, how evidence relationships affect corroboration, how conflicts and coverage are represented, which evidence fits the context budget, and whether the supported evidence is sufficient for a full or partial answer.
+Stage 5 is the final evidence-preparation boundary before generation. It determines what gathered evidence is usable, how evidence relationships affect corroboration, how conflicts and coverage are represented, which evidence fits the context budget, and whether the permitted evidence is sufficient for a full or partial answer.
 
 Conceptually:
 
@@ -53,11 +51,12 @@ Stage 6
 Stage 5 owns:
 
 - validation of Stage 4 assembly inputs,
+- revalidation of the immutable evidence boundary,
 - evidence normalization for context assembly,
 - exact/semantic/derivative evidence relationship analysis,
 - independent corroboration semantics,
 - conflict detection and grouping,
-- semantic coverage tracking,
+- semantic question/subquestion coverage tracking,
 - final evidence relevance/usefulness reassessment,
 - source/document/domain/task diversity control,
 - temporal grouping and ordering,
@@ -66,7 +65,7 @@ Stage 5 owns:
 - provenance-preserving extractive trimming,
 - final evidence sufficiency assessment,
 - unsupported/partial-answer state,
-- structured Stage 5 -> Stage 6 `GenerationContext`,
+- structured Stage 5 → Stage 6 `GenerationContext`,
 - Stage 5 evaluation hooks,
 - Stage 5 observability hooks.
 
@@ -85,10 +84,13 @@ Stage 5 does not own:
 - choosing a winner among materially conflicting claims in V1,
 - generative/LLM evidence summarization in V1,
 - final answer wording,
+- system/generation prompt construction,
 - final citation rendering,
 - final response formatting,
 - user-facing conflict/uncertainty prose,
 - long-running/distributed context-assembly infrastructure.
+
+Stage 6 owns generation prompt/instruction construction, grounded prose synthesis, user-facing uncertainty/conflict/partial-answer wording, response formatting, and final citation rendering.
 
 ## Requirements
 
@@ -96,17 +98,19 @@ Stage 5 does not own:
 
 Only evidence permitted by the current immutable `EvidencePolicy` may enter `GenerationContext`.
 
-Stage 5 must revalidate the source boundary at assembly time. Any candidate outside selected corpora or violating the current web policy is unusable and must be rejected with a structured contract-violation trace. Stage 5 never expands the legal source set.
+Stage 5 revalidates source legality as defense in depth. Any candidate outside selected corpora or violating the current web policy is unusable and is rejected with a structured contract/policy trace. Stage 5 never expands the legal source set.
+
+Target source-boundary violation rate: **0**.
 
 ### Provenance
 
-Every selected context item must remain traceable to authoritative evidence provenance and Stage 4 retrieval lineage.
+Every selected context item must remain traceable to authoritative evidence provenance and stable Stage 4 run/task/transform lineage references.
 
-Stage 5 must not fabricate missing local IDs, web identities, citation targets, temporal values, or lineage.
+Stage 5 must not fabricate missing local IDs, web identities, citation targets, temporal values, acquisition state, or lineage.
 
 ### Temporal semantics
 
-Temporal origin, semantic role, precision, certainty, BCE/CE semantics, source wording, and unresolved temporal state survive context assembly.
+Temporal origin, semantic role, precision, certainty, BCE/CE semantics, source wording, multiple mentions, and unresolved temporal state survive context assembly.
 
 Source/publication time is not event/content time. Approximate or uncertain dates must not become falsely exact during ordering or extraction.
 
@@ -118,7 +122,7 @@ Stage 5 does not silently reconcile, suppress, majority-vote, or nominate a fact
 
 ### Duplicate/corroboration safety
 
-Repeated, copied, syndicated, or derivative evidence must not count as independent corroboration merely because it appears in multiple documents, URLs, domains, corpora, or retrieval runs.
+Repeated, copied, syndicated, mirrored, or derivative evidence must not count as independent corroboration merely because it appears in multiple documents, URLs, domains, corpora, or retrieval runs.
 
 ### Partial answers
 
@@ -126,15 +130,15 @@ Supported portions of compound/timeline questions remain usable even when other 
 
 ## Assumptions
 
-- ADR-001 through ADR-008 are accepted and authoritative.
-- Stage 4's current architecture and ADR-009/ADR-010 are the working upstream contract pending orchestrator acceptance.
+- ADR-001 through ADR-010 are accepted and authoritative upstream architecture.
+- ADR-011 through ADR-013 are accepted Stage 5 architecture.
 - V1 is single-tenant, low concurrency, bounded-candidate, interactive.
-- Exact context token budgets and tuning weights are versioned configuration, not architectural constants.
-- Stage 6 will consume structured `GenerationContext` and own final generation instructions, answer synthesis, formatting, and citation rendering if the proposed boundary is accepted.
+- Exact context token budgets, ranking weights, and classifier/model choices are versioned implementation/evaluation configuration.
+- Stage 6 consumes structured `GenerationContext` and owns final generation instructions, answer synthesis, formatting, and citation rendering.
 
 ## Inputs
 
-Stage 5 consumes a structured Stage 4 result conceptually equivalent to:
+Stage 5 consumes the accepted ADR-010 contract:
 
 ```text
 EvidenceGatheringResult
@@ -152,7 +156,29 @@ EvidenceGatheringResult
 - stop_reason
 ```
 
-Each retrieval run should preserve enough lineage to distinguish mandatory execution, retries, reformulations, decomposition, anchor recovery, and conflict follow-up:
+Required-source execution status is first-class:
+
+```text
+RequiredSourceStatus
+- source_type
+- required
+- attempted
+- completed
+- outcome
+- terminal_failure?
+```
+
+Stage 5 must distinguish:
+
+- source not required,
+- required and succeeded with candidates,
+- required and completed with no candidates,
+- required and degraded,
+- required and persistently failed.
+
+It must not infer required-source execution state merely from candidate presence.
+
+Every Stage 4 retrieval run preserves causal lineage:
 
 ```text
 RetrievalRun
@@ -171,7 +197,7 @@ RetrievalRun
 - failure?
 ```
 
-Evidence candidates conceptually include:
+Evidence candidates use the accepted common envelope:
 
 ```text
 EvidenceCandidate
@@ -185,14 +211,14 @@ EvidenceCandidate
 - content_acquisition?
 ```
 
-`content_acquisition` is especially relevant for web evidence and should expose completeness semantics such as `FULL`, `PARTIAL`, or `UNKNOWN` where applicable.
+For web evidence, `content_acquisition` preserves completeness semantics such as `FULL`, `PARTIAL`, or `UNKNOWN` where applicable.
 
 ## Input Validation
 
 ### Completion-state behavior
 
 - `COMPLETED` is eligible for normal assembly.
-- `COMPLETED_DEGRADED` is eligible for normal assembly; degradation propagates.
+- `COMPLETED_DEGRADED` is eligible for normal assembly and degradation propagates.
 - `CLARIFICATION_REQUIRED` does not enter normal evidence assembly and produces a non-applicable assembly result.
 - `REJECTED` does not enter normal evidence assembly and produces a non-applicable assembly result.
 
@@ -200,15 +226,15 @@ Stage 5 may assemble when one required source succeeded and another failed, prov
 
 ### Candidate validity
 
-A candidate is unusable when required provenance, legal source identity, authoritative evidence text, or other contract-critical fields are missing or malformed.
+A candidate is unusable when contract-critical provenance, legal source identity, authoritative evidence text, or other required grounding fields are missing or malformed.
 
 Missing optional metadata may degrade a candidate without invalidating it. Examples include unknown publication time or absent optional temporal annotations.
 
-Invalid candidates may be dropped individually when safe evidence remains. If corruption is widespread enough that Stage 5 cannot safely construct a provenance-complete context, assembly fails rather than inventing missing fields.
+Invalid candidates may be dropped individually when safe evidence remains. If corruption is widespread enough that Stage 5 cannot safely construct provenance-complete context, assembly fails rather than inventing missing fields.
 
 ### Empty evidence
 
-A structurally valid completed gathering result containing no usable evidence is not a Stage 5 internal error. Stage 5 may return an assembled context with `INSUFFICIENT` evidence.
+A structurally valid completed gathering result containing no usable evidence is not a Stage 5 internal error. Stage 5 returns an assembled context with `INSUFFICIENT` evidence.
 
 ## Evidence Normalization
 
@@ -230,11 +256,11 @@ ContextCandidate
 - coverage_links[]
 ```
 
-Local provenance retains corpus/document/version/generation/chunk identities. Web provenance retains external URL/source/domain identity. Normalization is for analysis, not identity replacement.
+Local provenance retains corpus/document/version/generation/chunk identities. Web provenance retains URL/source/domain identity. Normalization is for analysis, not identity replacement.
 
 ## Evidence Relationship and Duplicate Semantics
 
-Stage 5 distinguishes five evidence-dependence states:
+Under ADR-011, Stage 5 distinguishes:
 
 ```text
 SAME_IDENTITY
@@ -256,19 +282,15 @@ Different source identities may contain substantially identical evidence payload
 
 Syndicated, mirrored, copied, lightly rewritten, or otherwise materially derivative sources belong to the same dependency family when derivation is reasonably suspected.
 
-V1 uses a conservative policy: suspected derivation prevents counting the members as independent corroboration unless independence is reasonably established.
+V1 is conservative: suspected derivation prevents counting family members as independent corroboration unless independence is reasonably established.
 
 ### Independent
 
-Independent evidence means Stage 5 has adequate basis to treat the supporting information as not known to derive from the same underlying information source.
-
-Different URL, domain, document, corpus, or retrieval run does not by itself prove independence.
+Different URL, domain, document, corpus, or retrieval run does not by itself prove independence. Independence requires adequate basis to treat the supporting information as not known to derive from the same underlying information source.
 
 ### Unknown dependence
 
-When Stage 5 cannot safely establish whether two sources are independent, it records `UNKNOWN_DEPENDENCE` rather than upgrading uncertainty to independence.
-
-Stage 6 may describe such items as multiple sources but must not describe them as multiple independent sources based solely on this relationship.
+When Stage 5 cannot safely establish whether evidence is independent, it records `UNKNOWN_DEPENDENCE`. This is not proof of derivation, but it is also not counted as established independent corroboration.
 
 ### Relationship representation
 
@@ -284,9 +306,9 @@ EvidenceRelationshipGroup
 - relationship_basis[]
 ```
 
-Stage 5 normally selects one textual representative from exact/derivative duplicate families while retaining alternate provenance and retrieval lineage. Additional family members are retained only when they contribute materially distinct useful context or provenance.
+Stage 5 normally selects one textual representative from exact/derivative families while retaining alternate provenance and retrieval lineage. Additional family members are selected only when they contribute materially distinct useful context or provenance.
 
-V1 does not introduce a numeric corroboration-confidence score.
+V1 introduces no numeric corroboration-confidence score.
 
 ## Corroboration Semantics
 
@@ -301,13 +323,11 @@ dependency_groups[]
 dependence_uncertain
 ```
 
-Raw evidence count is never treated as independent-support count.
-
-Stage 5 does not introduce source-authority ranking, domain trust scoring, or majority-vote factual selection.
+Raw evidence/source count is never treated as independent-support count. Stage 5 does not introduce source-authority ranking, domain trust scoring, or majority-vote factual selection.
 
 ## Conflict Handling
 
-Stage 5 classifies material evidence relationships using:
+Under ADR-012, Stage 5 classifies material evidence relationships using:
 
 ```text
 FACTUAL_CONFLICT
@@ -317,19 +337,11 @@ INTERPRETATION_DIVERGENCE
 NOT_A_CONFLICT
 ```
 
-### Materiality
+Textual differences are not automatically conflicts. A discrepancy becomes a conflict only when claims are materially incompatible for the user's question or coverage unit.
 
-Textual differences are not automatically conflicts. A discrepancy becomes a conflict when the claims are materially incompatible for the user's question or requested coverage unit.
+Interpretation divergence preserves supported competing explanations without requiring one side to be factually false.
 
-### Interpretation divergence
-
-Different supported explanations or historical interpretations are distinct from factual contradiction. Stage 5 preserves these viewpoints without requiring one to be false.
-
-### No preferred claim in V1
-
-Stage 5 does not nominate a preferred or winning claim in V1, even if one side has more independent supporting evidence. Evidence-support structure may be exposed descriptively, but truth selection is not inferred from count alone.
-
-### Conflict representation
+Stage 5 does not nominate a preferred or winning claim in V1, even when one side has more independent support. Evidence-support structure may be exposed descriptively, but truth selection is not inferred from count alone.
 
 Conceptually:
 
@@ -344,13 +356,13 @@ ConflictGroup
 - coverage_unit_ids[]
 ```
 
-Conflict is orthogonal to sufficiency. For example, evidence may be sufficient to answer while `conflicts_present = true`.
+Conflict is orthogonal to sufficiency. Evidence may be `SUFFICIENT` while `conflicts_present = true` when the disagreement itself can be accurately answered.
 
 ## Coverage Model
 
-Stage 5 explicitly tracks semantic coverage units for the material parts of the question.
+Stage 5 explicitly tracks semantic coverage units for material parts of the question.
 
-Coverage units originate from the original/resolved question and Stage 4 decomposition. Stage 5 may consolidate overlapping Stage 4 tasks into the same coverage unit but must not freely invent unrelated answer requirements.
+Coverage units originate from the original/resolved question and Stage 4 decomposition. Stage 5 may consolidate overlapping Stage 4 tasks into the same coverage unit but must not invent unrelated answer requirements.
 
 Conceptually:
 
@@ -362,7 +374,7 @@ CoverageUnit
 - conflicts_present
 - supporting_evidence_ids[]
 - missing_aspects[]
-- source/task_lineage[]
+- source_task_lineage[]
 ```
 
 Support states:
@@ -373,63 +385,32 @@ PARTIALLY_SUPPORTED
 UNSUPPORTED
 ```
 
-Conflict remains an orthogonal flag.
-
-Timeline/range questions may contain multiple temporal coverage units or segments. Meaningful missing requested periods may make the overall result partially sufficient.
+Timeline/range questions may contain multiple temporal coverage segments. Meaningful missing requested periods may make the overall result partially sufficient.
 
 ## Relevance / Context Utility Reassessment
 
-Stage 5 performs a final context-usefulness reassessment because the complete gathered evidence may combine:
-
-- multiple Stage 3 runs,
-- multiple decomposition tasks,
-- query reformulations,
-- local and web evidence,
-- conflicting evidence,
-- retrieval results whose upstream scores are not directly comparable.
+Stage 5 performs a final context-usefulness reassessment because gathered evidence may combine multiple retrieval runs, decomposition tasks, reformulations, source classes, conflicts, and incomparable upstream ranks.
 
 V1 does not require an LLM judge or learned reranker.
 
-Initial structured signals include:
+Initial structured signals may include:
 
 - upstream retrieval rank/signals,
 - coverage-unit match,
 - temporal relevance,
-- evidence relationship/duplicate status,
+- duplicate/dependency status,
 - conflict participation,
 - acquisition completeness,
 - degradation state,
 - provenance completeness.
 
-Exact weighting/rules are implementation/evaluation configuration.
-
-Learned reranking should be reconsidered only if evaluation shows that useful evidence is consistently gathered but poorly selected under the practical context budget.
-
-## Retrieval-Run Lineage Use
-
-Retrieval-run lineage is used to:
-
-- map evidence to coverage units/tasks,
-- preserve why evidence was gathered,
-- distinguish retries/reformulations/decomposition paths,
-- avoid treating repeated retrieval as repeated corroboration,
-- support evaluation and debugging.
-
-The number of times evidence was retrieved does not increase independent support.
-
-Stage 6 does not need raw Stage 4 retrieval runs for normal generation; Stage 5 preserves enough lineage references for traceability.
+Exact weighting/rules are versioned implementation/evaluation configuration. Learned or model-based reranking is a benchmark-triggered future option, not a V1 architectural dependency.
 
 ## Diversity
 
 Diversity is a soft context-quality control, not a quota system.
 
-Stage 5 should avoid pathological domination by:
-
-- one document,
-- one corpus where multiple selected corpora contain useful evidence,
-- one web domain,
-- one duplicate/dependency family,
-- one retrieval task.
+Stage 5 should avoid pathological domination by one document, corpus, web domain, duplicate/dependency family, or retrieval task when useful alternatives exist.
 
 Soft diversity pressure must not displace clearly stronger or uniquely necessary evidence solely to create cosmetic variety.
 
@@ -441,31 +422,15 @@ A required source may contribute zero selected context items when its evidence i
 
 Context ordering is query-sensitive rather than universally chronological.
 
-### Timeline/date-range queries
+- Timeline/date-range queries emphasize chronological organization while preserving approximate/uncertain placement.
+- Exact fact lookups emphasize relevance/support.
+- Before/after queries organize around the anchor and requested relation.
+- Conflict-focused queries may group competing claims ahead of strict chronology.
+- Compound queries may group by coverage/subquestion.
 
-Primarily chronological organization, while preserving approximate/uncertain placement and unresolved temporal segments.
+Approximate or uncertain dates retain their precision/certainty. Stage 5 does not assign fake exact ordering when evidence only supports coarse or unresolved placement.
 
-### Exact fact lookups
-
-Primarily relevance/usefulness ordering.
-
-### Before/after queries
-
-Organization centers on the anchor and requested temporal relation.
-
-### Conflict-focused evidence
-
-Competing claims remain grouped when conflict comparison is more useful than strict chronology.
-
-### Temporal uncertainty
-
-Approximate or uncertain dates retain their precision/certainty. Stage 5 does not assign fake exact ordering when evidence only supports coarse/uncertain placement.
-
-Temporally unresolved evidence may still be selected, but its unresolved state remains explicit.
-
-### Structured timeline
-
-For timeline-like questions, Stage 5 may produce structured timeline entries for Stage 6. Stage 5 does not generate narrative timeline prose.
+For timeline-like questions Stage 5 may produce structured timeline entries, but it does not generate narrative timeline prose.
 
 ## Token Budgeting
 
@@ -475,19 +440,15 @@ Stage 5 owns allocation within the generation-context budget. Allocation priorit
 
 1. material question coverage,
 2. preservation of material conflict sides,
-3. independent evidence,
+3. established independent evidence,
 4. temporal completeness when relevant,
 5. provenance metadata necessary for grounding/citations.
-
-No fixed local/web/document/corpus quotas are architectural requirements.
 
 Exact token values, reserve sizes, tuning weights, and profile-specific allocations are implementation/evaluation configuration.
 
 ## Context Selection
 
-Every candidate considered for final context receives a structured selection decision.
-
-Conceptually:
+Every candidate considered for final context receives a structured decision such as:
 
 ```text
 ContextSelectionDecision
@@ -496,7 +457,7 @@ ContextSelectionDecision
 - reasons[]
 ```
 
-Example reason concepts:
+Reason concepts include:
 
 ```text
 SELECTED_PRIMARY
@@ -520,30 +481,26 @@ The reason taxonomy is versioned and extensible.
 
 V1 does not use generative/LLM summarization for source evidence.
 
-Stage 5 may perform provenance-preserving extractive trimming or passage selection to reduce token cost.
-
-Any selected text must expose extent semantics such as:
+Stage 5 may perform provenance-preserving extractive trimming or passage selection. Selected text exposes extent semantics such as:
 
 ```text
 FULL
 EXTRACTED
 ```
 
-An extracted passage must retain exact lineage to its original evidence span and must not masquerade as complete/full source content.
+Extracted passages retain exact lineage to original evidence spans and never masquerade as complete/full source content.
 
-Generated summaries may be reconsidered in a future ADR if evaluation shows extractive selection is insufficient and the architecture can preserve derived-text status and compression lineage safely.
+Generated summaries require a future architecture decision that explicitly separates derived summary text from source evidence and preserves compression lineage.
 
-## Neighboring Context
+## Neighboring Context / Retrieval Boundary
 
 Stage 5 performs no new datastore retrieval or adjacent-chunk fetch in V1.
 
-Already-gathered parent/neighbor text or metadata may be used only if it is already part of the Stage 4 evidence contract. New evidence acquisition would cross the accepted Stage 4 completion boundary and requires an explicit future architecture change.
+Already-gathered parent/neighbor text or metadata may be used only when it is already part of the Stage 4 evidence contract. New evidence acquisition after Stage 4 completion requires an explicit future cross-stage architecture change.
 
 ## Sufficiency Assessment
 
-Sufficiency is semantic rather than count-based.
-
-Overall states:
+Overall states are:
 
 ```text
 SUFFICIENT
@@ -551,11 +508,9 @@ PARTIALLY_SUFFICIENT
 INSUFFICIENT
 ```
 
-`SUFFICIENT` means the material requested aspects are supported strongly enough for grounded generation under the current evidence policy. It does not mean a minimum chunk count was reached.
+Sufficiency is semantic, not count-based. It considers material requested aspects, provenance completeness, temporal support where relevant, unresolved conflict, degradation/failure context, and explicit coverage.
 
 A required-source failure does not automatically force `INSUFFICIENT` if remaining permitted evidence still supports the material requested aspects. The failure remains visible downstream.
-
-Stage 5 returns explicit supported and unsupported aspects so Stage 6 does not need to rediscover coverage from prose.
 
 Conceptually:
 
@@ -571,11 +526,11 @@ SufficiencyAssessment
 - rationale_codes[]
 ```
 
+Stage 6 receives supported and unsupported aspects directly and must not have to rediscover them from raw passages.
+
 ## Assembly Outcome Model
 
-Assembly execution status is distinct from evidence sufficiency.
-
-Conceptually:
+Assembly execution status is distinct from evidence sufficiency:
 
 ```text
 ContextAssemblyResult
@@ -594,21 +549,19 @@ FAILED
 
 Examples:
 
-- valid empty evidence -> `ASSEMBLED + INSUFFICIENT`,
-- all required sources failed but Stage 4 result is structurally valid -> may be `ASSEMBLED + INSUFFICIENT`,
-- `CLARIFICATION_REQUIRED` -> `NOT_APPLICABLE`,
-- `REJECTED` -> `NOT_APPLICABLE`,
-- malformed Stage 4 contract -> `FAILED`,
-- provenance corruption preventing safe packaging -> `FAILED`,
-- internal Stage 5 processing failure -> `FAILED`.
+- valid empty evidence → `ASSEMBLED + INSUFFICIENT`,
+- all required sources failed but Stage 4 result is structurally valid → `ASSEMBLED + INSUFFICIENT`,
+- `CLARIFICATION_REQUIRED` → `NOT_APPLICABLE`,
+- `REJECTED` → `NOT_APPLICABLE`,
+- malformed Stage 4 contract → `FAILED`,
+- provenance corruption preventing safe packaging → `FAILED`,
+- internal Stage 5 processing failure → `FAILED`.
 
-If the configured context budget is too small to represent minimum material supported evidence safely, including necessary conflict sides and coverage, Stage 5 returns `FAILED` with a specific context-budget reason rather than silently dropping critical evidence.
+If the configured context budget is too small to represent minimum material supported evidence safely, including necessary conflict sides and coverage, Stage 5 returns `FAILED` with a specific context-budget reason instead of silently dropping critical evidence.
 
 ## Stage 6 Handoff Contract
 
-Stage 5 returns a formal structured `GenerationContext`.
-
-Conceptually:
+Under ADR-013, Stage 5 returns a formal structured `GenerationContext`:
 
 ```text
 GenerationContext
@@ -629,6 +582,8 @@ GenerationContext
 - assembly_metadata
 ```
 
+Concrete schemas may evolve while preserving these semantics. Stage 6 must not depend on Stage 5-internal ranking formulas or arbitrary trace details.
+
 Each selected item conceptually includes:
 
 ```text
@@ -644,12 +599,12 @@ ContextItem
 - coverage_unit_ids[]
 - evidence_relationship_group_id?
 - conflict_group_ids[]
-- selection_reasons[]
-- ordering_metadata
 - retrieval_lineage_refs[]
 ```
 
-Stage 6 should not require raw Stage 4 retrieval runs for normal generation.
+Selection/ordering rationale may be retained in assembly trace/metadata but is not required to be prompt-visible unless Stage 6 needs it for a defined generation behavior.
+
+Stage 6 does not require raw Stage 4 retrieval runs for normal generation. Full run graphs remain available to evaluation/observability; selected items preserve stable lineage references.
 
 Stage 6 receives enough structured metadata to:
 
@@ -661,26 +616,30 @@ Stage 6 receives enough structured metadata to:
 - render citations from real source provenance,
 - abstain where coverage is unsupported.
 
-Stage 5 does not fabricate citation targets.
+Stage 5 never fabricates citation targets.
 
 ## Prompt Construction Boundary
 
-Stage 5 proposes a cleaner boundary than the historical wording in `stages.md`:
+The accepted boundary is:
 
 ```text
-Stage 5 -> structured GenerationContext
-Stage 6 -> system/generation instructions + GenerationContext -> LLM
+Stage 5
+EvidenceGatheringResult → structured GenerationContext
+
+Stage 6
+System/generation instructions + GenerationContext → grounded answer
 ```
 
-Under this proposal, Stage 6 owns:
+Stage 6 owns:
 
 - system/generation prompt construction,
 - grounding instructions,
 - response-format instructions,
-- final citation-rendering instructions,
-- natural-language answer generation.
+- citation-rendering instructions,
+- natural-language answer generation,
+- user-facing conflict/uncertainty/partial-answer wording.
 
-This is a cross-stage/global architecture clarification because `stages.md` currently lists prompt construction as a Stage 5 responsibility. It requires orchestrator review before becoming accepted architecture.
+Retrieved evidence remains data. Stage 5 must not convert retrieved text into control-plane instructions.
 
 ## Failure / Degraded Behavior
 
@@ -702,19 +661,19 @@ Assembly may proceed. Degradation affects selection/sufficiency and propagates t
 
 ### Partial web content
 
-May be usable when the selected text itself supports the required claim and provenance is valid. Acquisition completeness remains visible. Stage 5 must not treat `PARTIAL` as `FULL`.
+May be usable when selected text itself supports the required claim and provenance is valid. Acquisition completeness remains visible; `PARTIAL` never becomes `FULL` implicitly.
 
-### All required sources failed
+### Required-source terminal failure
 
-May still produce `ASSEMBLED + INSUFFICIENT` if the Stage 4 result is structurally valid and contains no usable evidence.
+The failure remains explicit in `required_source_statuses[]` and downstream failure/degradation metadata. It does not force weak evidence from that source into final context.
 
 ### Duplicate-only apparent corroboration
 
-Context may still be supported by one corroborative unit, but duplicates do not increase independence. Sufficiency depends on the semantic needs of the question, not duplicate count.
+Duplicates do not increase independence. Sufficiency depends on semantic support needs rather than duplicate count.
 
-### Unresolved conflict
+### Unresolved material conflict
 
-Conflict is preserved. It does not automatically make the evidence insufficient.
+Conflict is preserved and does not automatically imply insufficiency.
 
 ### Context budget too small
 
@@ -725,6 +684,7 @@ Conflict is preserved. It does not automatically make the evidence insufficient.
 Stage 5 evaluation must include at least:
 
 - provenance retention rate,
+- source-boundary violation rate,
 - false independent-corroboration rate,
 - evidence-relationship classification quality,
 - conflict preservation rate,
@@ -732,38 +692,39 @@ Stage 5 evaluation must include at least:
 - sufficiency classification accuracy,
 - context precision,
 - context coverage/recall,
+- evidence omission / critical-evidence-drop rate,
 - duplicate-token reduction without loss of unique provenance,
 - temporal organization correctness,
 - unsupported/policy-violating evidence inclusion rate,
 - context-budget efficiency,
+- degraded-source handling correctness,
 - assembly latency,
 - assembly cost where applicable.
 
-Target invariants include effectively 100% provenance retention for selected context, zero known source-boundary violations, and zero false independent corroboration on deterministic duplicate/derivative benchmark cases.
+Benchmark cases include at least:
 
-Benchmark cases should cover:
-
-- single-fact lookup,
-- multi-source corroboration,
-- copied local documents,
-- local copy plus original web source,
-- syndicated/rewritten web evidence,
-- uncertain dependency,
+- single factual query,
+- compound/decomposed question,
+- timeline/date range,
+- BCE/CE,
+- approximate period,
+- exact duplicate content,
+- semantic/derivative duplicate content,
+- syndicated web content,
+- established independent corroboration,
+- unknown dependence,
 - conflicting dates,
-- conflicting quantitative claims,
-- supported interpretation divergence,
-- timeline/range queries,
-- BCE/CE and approximate dates,
-- missing timeline segments,
-- multi-corpus evidence,
-- local + web hybrid evidence,
+- conflicting quantities,
+- conflicting interpretations,
+- local + web,
 - one required source failure,
-- partial web acquisition,
-- decomposed compound questions,
-- insufficient evidence,
-- duplicate-only apparent corroboration,
+- partial web evidence,
+- no usable evidence,
+- unsupported subquestion,
 - malformed provenance,
 - context-budget exhaustion.
+
+Target invariants include effectively 100% provenance retention for selected context, zero known source-boundary violations, and zero false independent corroboration on deterministic duplicate/derivative benchmark cases.
 
 ## Observability
 
@@ -773,7 +734,9 @@ Structured traces should include at least:
 input_candidate_count
 valid_candidate_count
 invalid_candidate_count
+rejected_candidates_with_reason
 relationship_groups[]
+corroboration_decisions[]
 conflict_groups[]
 coverage_units[]
 relevance_reassessment
@@ -783,6 +746,8 @@ ordering_strategy
 token_budget
 token_allocation
 selected_token_count
+extraction_trimming[]
+final_context_order
 sufficiency_assessment
 assembly_status
 source_failures[]
@@ -791,21 +756,21 @@ configuration_version
 assembly_latency
 ```
 
-Stage 5 traces structured decisions and reasons. It does not persist arbitrary model chain-of-thought.
+Stage 5 traces structured decisions and reasons. It does not require or persist arbitrary hidden model chain-of-thought.
 
 ## Scalability
 
 V1 assumes bounded candidate sets from Stage 4, one primary user, low concurrency, and interactive use.
 
-Stage 5 should initially be implemented as an application-layer component/service boundary rather than distributed context-assembly infrastructure.
+Stage 5 should initially be implemented as an application-layer component boundary rather than distributed context-assembly infrastructure.
 
 Revisit scaling architecture if candidate volume, concurrency, semantic relationship analysis, or learned reranking/compression becomes a measured bottleneck.
 
 ## Latency / Throughput Requirements
 
-Stage 5 should remain a bounded fraction of interactive request latency. Exact latency targets require benchmark data and are configuration/evaluation concerns rather than current architecture constants.
+Stage 5 should remain a bounded fraction of interactive request latency. Exact latency targets require benchmark data and are configuration/evaluation concerns rather than architecture constants.
 
-Costly model-based reranking or summarization is not part of the V1 baseline. Relationship/conflict/coverage mechanisms should be benchmarked for quality first and optimized only when measured latency requires it.
+Costly model-based reranking or summarization is not part of the V1 baseline.
 
 ## Alternatives Considered
 
@@ -815,7 +780,7 @@ Rejected because Stage 5 receives heterogeneous evidence across runs, tasks, sou
 
 ### LLM judge for all evidence selection
 
-Deferred because it adds cost, latency, nondeterminism, and another hallucination surface before deterministic/structured signals are benchmarked.
+Deferred because it adds cost, latency, nondeterminism, and another evidence-suppression surface before deterministic/structured signals are benchmarked.
 
 ### Raw URL/document count as corroboration
 
@@ -848,301 +813,118 @@ Rejected for V1 because it crosses the completed Stage 4 evidence-gathering boun
 ## Key Design Decisions
 
 1. Stage 5 distinguishes evidence identity, exact duplicates, derivative evidence, independent evidence, and unknown dependence.
-2. Different documents containing copied evidence count as one corroboration unit for that evidence.
-3. V1 uses a conservative derivative policy: suspected derivation does not count as independent corroboration.
-4. Unknown dependence remains explicit rather than being upgraded to independence.
-5. Duplicate/derivative families normally use one representative text plus alternate provenance.
-6. V1 uses no numeric corroboration-confidence score.
-7. Material conflicts are categorized as factual, quantitative, temporal, or interpretation divergence.
-8. Interpretation divergence is distinct from factual contradiction.
-9. Conflict is orthogonal to sufficiency.
-10. Stage 5 does not nominate a preferred conflict claim in V1.
-11. Minor discrepancies become conflicts only when material to the question.
-12. Stage 5 explicitly tracks semantic coverage units derived from the resolved question and Stage 4 decomposition.
-13. Coverage states are supported, partially supported, or unsupported; conflict remains orthogonal.
-14. Overall sufficiency is sufficient, partially sufficient, or insufficient.
-15. Required-source failure does not automatically force insufficiency.
-16. Sufficiency is based on material requested aspects, not chunk count.
-17. Timeline gaps may produce partial sufficiency.
-18. Stage 5 returns explicit supported and unsupported aspects.
-19. Stage 5 performs final context-usefulness reassessment.
-20. V1 uses structured/deterministic signals before learned/LLM reranking.
-21. Diversity is soft and not quota-driven.
-22. No fixed local/web context split exists.
-23. Required-source execution/failure state propagates even when that source contributes no selected context item.
-24. Every candidate receives a structured selection/drop reason.
-25. Context ordering is query-sensitive rather than universally chronological.
-26. Timeline/range queries are primarily chronological; fact lookup is relevance-first; before/after queries organize around the anchor.
-27. Conflict grouping may override strict chronological grouping where necessary.
-28. Temporal uncertainty, origin, and unresolved state survive ordering.
-29. Stage 5 may produce structured timeline entries but not narrative timeline prose.
-30. Context budget values are versioned configuration.
-31. Allocation prioritizes material coverage, conflict preservation, independence, temporal completeness, and provenance.
-32. V1 has no fixed source/document quotas.
-33. V1 has no generative/LLM evidence summarization.
-34. Provenance-preserving extractive trimming is permitted.
-35. Extracted text retains exact source lineage and explicit extent status.
-36. Stage 5 performs no new adjacent-chunk/datastore retrieval in V1.
-37. Budget inability to preserve minimum material evidence safely is an assembly failure, not silent evidence dropping.
-38. `COMPLETED` and `COMPLETED_DEGRADED` are assembly-eligible.
-39. `CLARIFICATION_REQUIRED` and `REJECTED` are not normal assembly inputs.
-40. Empty valid evidence produces assembled insufficiency rather than internal failure.
-41. Missing required provenance invalidates the candidate; widespread unsafe corruption fails assembly.
-42. Stage 5 revalidates the immutable evidence boundary.
-43. Assembly execution status is separate from evidence sufficiency.
-44. Assembly states are assembled, not applicable, and failed.
-45. Stage 5 -> Stage 6 uses a formal structured `GenerationContext`.
-46. Stage 6 does not need raw Stage 4 retrieval runs for normal generation.
-47. Stage 6 receives structured conflicts, coverage, sufficiency, duplicate/dependence semantics, required-source failures, and degradation.
-48. Stage 5 proposes structured-context-only ownership; Stage 6 owns final prompt construction and answer generation, subject to orchestrator acceptance.
+2. Repeated retrieval and copied/derivative evidence do not inflate independent corroboration.
+3. Unknown dependence is not counted as established independence.
+4. Duplicate/derivative families normally use one representative text plus alternate provenance.
+5. V1 uses no numeric corroboration-confidence score.
+6. Material factual, quantitative, temporal, and interpretation conflicts are represented explicitly.
+7. Conflict is orthogonal to sufficiency.
+8. Stage 5 does not nominate a preferred conflict claim or introduce source authority in V1.
+9. Stage 5 explicitly tracks semantic coverage units and supported/partial/unsupported aspects.
+10. Overall sufficiency is `SUFFICIENT`, `PARTIALLY_SUFFICIENT`, or `INSUFFICIENT` and is semantic rather than count-based.
+11. Required-source failure does not automatically force insufficiency.
+12. Stage 5 performs final context-usefulness reassessment using structured signals; learned/LLM reranking is not required in V1.
+13. Diversity is soft and quota-free; no fixed local/web split exists.
+14. Context ordering is query-sensitive and preserves temporal uncertainty.
+15. Context budget values and selection weights are versioned configuration.
+16. V1 allows provenance-preserving extractive trimming and no generative evidence summarization.
+17. Stage 5 performs no new retrieval or adjacent-chunk fetch in V1.
+18. `COMPLETED` and `COMPLETED_DEGRADED` are assembly-eligible; `CLARIFICATION_REQUIRED` and `REJECTED` are not.
+19. Empty valid evidence produces assembled insufficiency rather than internal failure.
+20. Missing required provenance invalidates evidence; Stage 5 never fabricates it.
+21. Assembly execution status is separate from evidence sufficiency.
+22. Stage 5 emits structured `GenerationContext`; Stage 6 does not require raw Stage 4 run graphs for normal generation.
+23. Stage 6 owns generation/system prompt construction, final answer synthesis, formatting, and citation rendering.
+24. Retrieved evidence remains data, not control.
 
-## Exact Stage 4 Contract Deltas Required
+## Accepted Stage 4 Contract Reconciliation
 
-The current Stage 4/ADR-010 working contract is close but not fully sufficient for the accepted Stage 5 semantics.
+The Stage 5 design is fully reconciled against accepted ADR-010.
 
-The following deltas should be reviewed and incorporated into Stage 4/ADR-010 before Stage 5 implementation:
+The items originally identified during Stage 5 exploration as possible Stage 4 deltas are already present in the accepted upstream contract:
 
-### 1. Add `required_source_statuses[]` explicitly to `EvidenceGatheringResult`
+1. `required_source_statuses[]` is explicit in `EvidenceGatheringResult`.
+2. Every `RetrievalRun` carries `task_id` and optional `parent_task_id`.
+3. `run_kind` explicitly distinguishes mandatory initial, operational retry, and bounded evidence-seeking executions.
+4. `parent_run_id`, `trigger_reason`, and `query_transform_id` preserve causal transformation lineage where applicable.
+5. Web evidence exposes acquisition/completeness state such as `FULL`, `PARTIAL`, or `UNKNOWN`.
+6. Evidence retrieval lineage references stable run/task/transform identities rather than relying on execution order or query-text inference.
+7. Contract-invalid executor responses, including missing required provenance, fail explicitly; Stage 5 does not invent missing provenance.
 
-Stage 4 already defines `RequiredSourceStatus`, but ADR-010's top-level conceptual result currently omits the field.
-
-Stage 5 requires explicit required-versus-attempted/completed/outcome state so source execution obligations remain visible independently from selected context.
-
-### 2. Make retrieval-task identity explicit on every `RetrievalRun`
-
-Add/confirm:
-
-```text
-- task_id
-- parent_task_id?
-```
-
-Stage 5 uses this for coverage mapping and must not infer task identity from free-form queries.
-
-### 3. Add explicit run-kind semantics
-
-Add/confirm:
-
-```text
-- run_kind
-```
-
-This should distinguish at least initial mandatory execution from operational retry and evidence-seeking executions as needed for trace semantics.
-
-### 4. Preserve parent-run / transformation lineage
-
-Add/confirm:
-
-```text
-- parent_run_id?
-- trigger_reason?
-- query_transform_id?
-```
-
-These fields let Stage 5/evaluation distinguish repeated retrieval from new informational support and map reformulations/decomposition to the original request.
-
-### 5. Expose web content-acquisition completeness on evidence candidates
-
-Add/confirm an optional typed field such as:
-
-```text
-content_acquisition
-- completeness: FULL | PARTIAL | UNKNOWN
-- acquisition metadata as applicable
-```
-
-Stage 5 needs to preserve partial/unknown web-content completeness rather than treating every grounding payload as semantically complete.
-
-### 6. Define retrieval-lineage references precisely
-
-`EvidenceCandidate.retrieval_lineage[]` should reference stable run/task/transform identities rather than only carrying opaque/free-form metadata.
-
-### 7. Confirm provenance contract-criticality
-
-ADR-010 should explicitly state that evidence candidates missing required source provenance are contract-invalid for downstream grounding. Stage 5 will not invent missing provenance.
-
-These deltas do not move semantic deduplication, conflict grouping, or sufficiency into Stage 4.
-
-## Proposed Global Architecture / `stages.md` Changes
-
-These changes are **proposed only** until orchestrator acceptance.
-
-### `docs/architecture/architecture.md`
-
-Add accepted Stage 5 invariants after ADR review:
-
-- final evidence relationship model distinguishes exact/derivative/independent/unknown dependence,
-- duplicate/derivative evidence does not inflate independent corroboration,
-- material conflict is structurally grouped and remains orthogonal to sufficiency,
-- Stage 5 tracks coverage and semantic sufficiency,
-- assembly execution status is distinct from evidence insufficiency,
-- Stage 5 emits structured `GenerationContext`,
-- V1 uses no generative evidence compression and performs no new retrieval during context assembly,
-- context ordering is query-sensitive and temporal uncertainty is preserved,
-- Stage 6 receives source failures/degradation and provenance-complete selected evidence.
-
-### `stages.md`
-
-Clarify Stage 5 responsibilities to include:
-
-- evidence relationship/corroboration analysis,
-- conflict grouping,
-- coverage/sufficiency assessment,
-- provenance-safe context selection,
-- structured `GenerationContext` output.
-
-Move/clarify **prompt construction** from Stage 5 to Stage 6 if the orchestrator accepts the proposed boundary:
-
-```text
-Stage 5: structured context assembly
-Stage 6: generation prompt/instructions + answer generation
-```
-
-### Stage 4 documents / ADR-010
-
-Apply the explicit contract deltas listed above after orchestrator review.
+No additional Stage 4 contract change is required for Stage 5 implementation.
 
 ## Dependencies
 
-### Stage 2
-
-Depends on canonical evidence/provenance identity, source hashes/lineage signals, temporal metadata, and publication correctness.
-
-### Stage 3
-
-Depends on deterministic retrieval candidates, upstream ranks/signals, canonical chunk identity, eligibility enforcement, temporal match metadata, and retrieval degradation.
-
-### Stage 4
-
-Depends on accepted `EvidenceGatheringResult`, stable retrieval/task/transformation lineage, required-source statuses, and grounding-capable local/web evidence.
-
-### Stage 6
-
-Consumes `GenerationContext` and owns grounded answer generation under the proposed boundary.
-
-### Stage 7
-
-Must evaluate evidence relationships, corroboration errors, conflicts, coverage, sufficiency, selection quality, temporal ordering, and provenance retention.
-
-### Stage 8
-
-Must trace structured Stage 5 decisions, selected/dropped evidence, budget use, context presented to Stage 6, and assembly outcomes.
-
-### Stage 9
-
-Stage 5 structurally preserves retrieved content as data rather than control instructions and keeps citation/provenance lineage intact for guardrail enforcement.
-
-### Stage 10
-
-No additional production topology is required for Stage 5 V1 beyond the accepted bounded interactive architecture.
+- Stage 1 behavioral contract and global evidence invariants.
+- Stage 2 canonical evidence/provenance/temporal representations.
+- Stage 3 deterministic local retrieval and candidate metadata.
+- Stage 4 accepted `EvidenceGatheringResult` / ADR-010 contract.
+- ADR-011 evidence relationship and corroboration semantics.
+- ADR-012 conflict, coverage, and sufficiency model.
+- ADR-013 `GenerationContext` and Stage 5 → Stage 6 boundary.
 
 ## Implementation Plan
 
-Implementation should follow accepted ADRs and orchestrator-approved contract updates.
-
-### Milestone 1: Types and validation
-
-- define `ContextAssemblyResult`, `GenerationContext`, `ContextItem`, relationship/conflict/coverage/sufficiency structures,
-- validate Stage 4 completion state, evidence policy, candidate provenance, and acquisition completeness,
-- establish stable reason-code taxonomies.
-
-### Milestone 2: Evidence relationship analysis
-
-- implement same-identity/exact-duplicate handling,
-- implement conservative derivative/unknown-dependence classification,
-- select representative evidence while preserving alternate provenance,
-- verify duplicate evidence cannot inflate independent support.
-
-### Milestone 3: Conflict and coverage analysis
-
-- map coverage units from resolved query/Stage 4 tasks,
-- identify material factual/quantitative/temporal conflicts and interpretation divergence,
-- attach supporting evidence and coverage links.
-
-### Milestone 4: Context utility and temporal organization
-
-- implement deterministic context-usefulness reassessment baseline,
-- implement soft diversity controls,
-- implement query-sensitive temporal ordering/grouping,
-- preserve unresolved/approximate temporal semantics.
-
-### Milestone 5: Budgeted selection
-
-- implement context-budget accounting,
-- implement provenance-preserving extractive selection,
-- preserve required conflict sides and material coverage,
-- record structured selection/drop reasons.
-
-### Milestone 6: Sufficiency and GenerationContext
-
-- compute coverage states and overall sufficiency,
-- produce `GenerationContext`,
-- propagate failures/degradation/assumptions,
-- validate Stage 6 can consume context without raw Stage 4 runs.
-
-### Milestone 7: Evaluation and observability
-
-- implement deterministic benchmark fixtures for duplicate/conflict/temporal/partial cases,
-- instrument selection/relationship/coverage/budget/sufficiency traces,
-- establish latency/token/cost baselines,
-- evaluate whether learned reranking or compression is actually needed before adding either.
+1. Define concrete typed Stage 5 input/output schemas from ADR-010 and ADR-013.
+2. Implement deterministic contract/policy/provenance validation.
+3. Implement identity/exact-duplicate grouping from authoritative hashes/IDs.
+4. Implement conservative derivative/independence analysis with explicit `UNKNOWN_DEPENDENCE`.
+5. Implement conflict grouping and coverage-unit mapping.
+6. Implement structured final utility reassessment, diversity, temporal ordering, and selection.
+7. Implement provenance-preserving extraction and token budgeting.
+8. Implement semantic sufficiency assessment and `ContextAssemblyResult`.
+9. Add structured tracing and benchmark fixtures for all required Stage 5 evaluation cases.
+10. Validate the concrete `GenerationContext` consumer contract with Stage 6 implementation without moving generation semantics into Stage 5.
 
 ## Open Questions
 
-The core Stage 5 semantic architecture is resolved. Remaining implementation/evaluation questions include:
+No unresolved architecture blocker remains for Stage 5 implementation.
 
-- exact deterministic/semantic mechanisms for derivative evidence detection,
-- exact relevance/context-utility scoring/rules,
-- exact diversity pressure configuration,
-- exact context token budgets,
-- exact conflict materiality thresholds/heuristics,
-- exact coverage-unit derivation implementation,
-- exact extractive passage-selection algorithm,
-- whether evaluation later justifies learned reranking,
-- whether evaluation later justifies provenance-safe generative compression.
+Implementation/evaluation may still choose concrete:
 
-These are tuning/implementation questions unless future evaluation exposes a need to change the accepted semantic contract.
+- derivative-detection mechanisms,
+- utility/ranking weights,
+- token budgets,
+- relationship/conflict/coverage classifiers,
+- deterministic versus bounded model assistance for difficult semantic classification,
+- concrete schema/enum names consistent with the accepted semantics.
+
+Any future change that introduces source authority, generative evidence compression, Stage 5 retrieval, or a materially different Stage 5 → Stage 6 contract requires orchestrator review and an ADR update/new ADR as appropriate.
 
 ## Decisions Requiring Orchestrator Approval
 
-1. ADR-011 — Evidence Relationship and Corroboration Semantics.
-2. ADR-012 — Conflict, Coverage, and Sufficiency Model.
-3. ADR-013 — GenerationContext and Stage 5 -> Stage 6 Boundary.
-4. Stage 4 / ADR-010 contract deltas listed in this document.
-5. Prompt-construction ownership clarification between Stage 5 and Stage 6.
-6. Corresponding `architecture.md` and `stages.md` updates after acceptance.
+None. Orchestrator review is complete.
 
 ## Acceptance Criteria
 
-Stage 5 may be marked Implementation Ready only when:
+Stage 5 implementation is acceptable when it demonstrates:
 
-- ADR-011/012/013 are accepted,
-- Stage 4's final accepted handoff contains required Stage 5 fields or equivalent semantics,
-- the prompt-construction boundary is resolved,
-- global architecture/roadmap updates are accepted where required,
-- representative duplicate/derivative/conflict/coverage/temporal/failure cases are defined for evaluation,
-- Stage 6 handoff contract is stable,
-- no unresolved architecture question requires source-authority ranking or new retrieval ownership.
+- zero evidence-policy/source-boundary violations,
+- provenance-safe selected context and citations inputs,
+- no repeated/duplicate/derivative evidence inflation of independent corroboration,
+- correct explicit unknown-dependence handling,
+- material conflict preservation without winner selection,
+- accurate compound/timeline coverage mapping,
+- semantic sufficiency/partial-sufficiency behavior,
+- preservation of required-source failure/degradation state,
+- temporal ordering without false precision,
+- deterministic/traceable context selection decisions under fixed configuration where applicable,
+- extractive trimming with source-span lineage,
+- safe behavior for empty/degraded/malformed/budget-exhausted inputs,
+- a `GenerationContext` sufficient for Stage 6 grounded generation and citation rendering,
+- structured observability without hidden chain-of-thought requirements.
 
 ## Impact on Existing Architecture
 
-Stage 5 does not weaken existing evidence boundaries, provenance, temporal uncertainty, deterministic local retrieval, or bounded Stage 4 orchestration.
+Stage 5 accepts and extends the end-to-end architecture by establishing:
 
-It adds the missing final evidence-semantics layer between evidence gathering and generation:
+- final evidence relationship/dependence and corroboration semantics,
+- material conflict grouping,
+- semantic coverage and final evidence sufficiency ownership,
+- the structured `GenerationContext` contract,
+- no-new-retrieval and extractive-only compression boundaries for V1,
+- query-sensitive temporal context ordering,
+- explicit propagation of source failures/degradation into generation context,
+- Stage 6 ownership of generation/system prompt construction.
 
-```text
-Stage 4 EvidenceGatheringResult
-        ↓
-Stage 5 relationship/conflict/coverage/selection/sufficiency
-        ↓
-GenerationContext
-        ↓
-Stage 6 grounded generation
-```
-
-The principal cross-stage impacts are:
-
-- explicit Stage 4 lineage/status/completeness fields,
-- a formal Stage 5 -> Stage 6 `GenerationContext`,
-- global documentation of duplicate/corroboration, conflict, coverage, and sufficiency invariants,
-- proposed movement of final prompt construction into Stage 6.
+These accepted project-wide invariants are recorded in `docs/architecture/architecture.md` and ADR-011 through ADR-013.
