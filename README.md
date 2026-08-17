@@ -101,7 +101,7 @@ Canonical evidence is authoritative; every search index is a **rebuildable proje
 
 ## Status
 
-Stages 1–3 are accepted design. **Stage 2 (ingestion) is implemented**: upload a TXT or Markdown document and it is parsed, normalized, chunked, temporally annotated, embedded, validated and published as searchable, with durable job state and crash recovery. Retrieval (Stage 3) is not built yet — there is no search endpoint.
+Stages 1–3 are accepted design. **Stage 2 (ingestion) is implemented**: upload a TXT, Markdown or PDF document and it is parsed, normalized, chunked, temporally annotated, embedded, validated and published as searchable, with durable job state and crash recovery. DOCX is the remaining format. Retrieval (Stage 3) is not built yet — there is no search endpoint.
 
 ## Try it end to end
 
@@ -191,6 +191,16 @@ psql "SELECT r.stage, r.attempt, r.finished_at IS NOT NULL AS finished, j.state
 
 For that document you should see two chunks (one per section, the heading leading its own chunk), three temporal mentions with `509 BCE` at `YEAR` precision and `15 March 44 BCE` at `DAY`, one vector per chunk, and a single finished attempt checkpointed at `publish`.
 
+Upload a PDF the same way (`-F file=@paper.pdf`). Pages are evidence, so `page_start`/`page_end` are populated for paginated formats and null for the rest:
+
+```bash
+psql "SELECT c.ordinal, c.page_start, c.page_end, left(c.source_text, 45)
+      FROM chunks c JOIN document_versions v ON v.id = c.document_version_id
+      WHERE v.document_id = '$DOC' ORDER BY c.ordinal;"
+```
+
+Running headers and page-number footers are stripped before chunking, and each removal is recorded as a parser warning rather than dropped silently. A password-protected, corrupt, or scanned-image-only PDF fails non-retryably with the reason in `error_summary` — OCR is out of V1 scope.
+
 ### Replace and delete
 
 ```bash
@@ -207,7 +217,7 @@ Kill the worker mid-ingestion (`Ctrl-C` twice, or `pkill -9 -f astrag.worker`) a
 ### Tests
 
 ```bash
-uv run pytest                         # 156 tests, needs docker compose up
+uv run pytest                         # 164 tests, needs docker compose up
 uv run pytest tests/test_end_to_end.py -v   # upload → searchable, plus crash-resume
 ```
 

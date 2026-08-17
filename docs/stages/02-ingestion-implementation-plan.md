@@ -34,7 +34,7 @@ Rationale for Python: the PDF/DOCX parsing and temporal-extraction ecosystems ar
 
 TXT and Markdown first. PDF next, DOCX after. The parser abstraction from `02-ingestion.md` §6 is built as specified in the first slice; only the registry grows when the later formats land.
 
-PDF is deliberately not first: page provenance, header/footer stripping, and scanned-only detection would dominate the slice and delay proving the pipeline end to end.
+PDF is deliberately not first: page provenance, header/footer stripping, and scanned-only detection would dominate the slice and delay proving the pipeline end to end. It landed in rung 13 on `pypdf`, extracting in layout mode so vertical gaps survive as paragraph boundaries; tables, multi-column layout and OCR remain out of V1.
 
 ### Embeddings
 
@@ -165,14 +165,14 @@ Each rung is one commit, committed as it goes green. A rung exceeding ~250 chang
 | 10 | `feat(publish): publication validator and atomic active-version activation` | |
 | 11 | `feat(api): status contract and cascade delete` | |
 | 12 | `test(ingest): end-to-end ingestion and worker crash-resume` | |
+| 13 | `feat(parse): pdf parser with page provenance and header cleanup` | golden-file tests in this rung |
 
-Golden-file tests live inside rungs 6, 7, and 8 rather than in a separate rung — the parser, chunker, and temporal extractor are exactly the logic that must not go green without them.
+Golden-file tests live inside rungs 6, 7, 8, and 13 rather than in a separate rung — the parser, chunker, and temporal extractor are exactly the logic that must not go green without them.
 
 ## Deferred out of this slice
 
 | Deferred | Add when |
 | --- | --- |
-| PDF parser | after the pipeline is proven on TXT/MD (rung 13) |
 | DOCX parser | after PDF (rung 14) |
 | ProcessingGeneration cutover and reprocessing orchestration | a chunker or normalizer actually changes |
 | SearchRepresentationGeneration re-embedding migration | the embedding model actually changes |
