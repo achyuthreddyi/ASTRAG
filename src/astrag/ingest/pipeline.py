@@ -14,8 +14,16 @@ from astrag.ingest.embedding import EmbeddingError, get_embedder
 from astrag.ingest.executor import Stage, StageContext, StageError
 from astrag.ingest.normalized import NormalizedDocument
 from astrag.ingest.parsers import ParseError, parse
+from astrag.ingest.publish import validate
 from astrag.ingest.temporal import Mention, extract
-from astrag.models import Chunk, ChunkRepresentation, IngestionRun, TemporalMention
+from astrag.models import (
+    Chunk,
+    ChunkRepresentation,
+    Document,
+    IngestionRun,
+    TemporalMention,
+    VersionStatus,
+)
 from astrag.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -232,10 +240,38 @@ def embed_stage(ctx: StageContext) -> None:
         ctx.db.commit()
 
 
-# The pipeline. Rung 10 appends publication.
+def publish_stage(ctx: StageContext) -> None:
+    """Validate the built set, then activate it in one commit (§23).
+
+    Validation failure is not retryable: nothing about waiting thirty seconds
+    makes an unanchored span anchor itself, and a silently republished broken
+    set is worse than a version that says it failed.
+    """
+    document = NormalizedDocument.model_validate_json(
+        ctx.store.get(ctx.run.normalized_artifact_key)
+    )
+    failures = validate(ctx.db, ctx.version, ctx.run, document)
+    if failures:
+        raise StageError("publication_invalid", "; ".join(failures), retryable=False)
+
+    # The cutover: which chunk set is published, which version is active, and
+    # whether it is searchable, all in one transaction. A reader either sees the
+    # previous version or this one, never a half-activated mixture.
+    ctx.version.published_processing_generation_id = ctx.run.processing_generation_id
+    ctx.version.status = (
+        VersionStatus.READY_DEGRADED
+        if ctx.version.degraded_capabilities
+        else VersionStatus.READY
+    )
+    ctx.db.get(Document, ctx.version.document_id).active_version_id = ctx.version.id
+    ctx.db.commit()
+
+
+# The pipeline, end to end: nothing is searchable until publish says so.
 STAGES: list[Stage] = [
     ("parse", parse_stage),
     ("chunk", chunk_stage),
     ("temporal", temporal_stage),
     ("embed", embed_stage),
+    ("publish", publish_stage),
 ]
