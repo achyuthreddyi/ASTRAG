@@ -5,6 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
+from astrag.models import Base
 from astrag.settings import get_settings
 
 # this is the Alembic Config object, which provides
@@ -16,11 +17,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None  # set when the model Base lands (rung 2)
+target_metadata = Base.metadata
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
