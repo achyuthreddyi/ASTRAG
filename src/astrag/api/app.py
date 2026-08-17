@@ -18,7 +18,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from astrag.models import Corpus, Document, DocumentVersion, VersionStatus
+from astrag.models import (
+    Corpus,
+    Document,
+    DocumentVersion,
+    IngestionJob,
+    VersionStatus,
+)
 from astrag.settings import get_settings
 from astrag.storage.artifacts import ArtifactStore, get_artifact_store
 from astrag.storage.database import get_db
@@ -125,6 +131,10 @@ def _add_version(db: Session, document: Document, data: bytes, media_type: str,
         status=VersionStatus.PENDING,
     )
     db.add(version)
+    db.flush()
+    # Enqueued in the same transaction as the version: a version the worker will
+    # never see is worse than no version at all.
+    db.add(IngestionJob(document_version_id=version.id))
     return version
 
 
