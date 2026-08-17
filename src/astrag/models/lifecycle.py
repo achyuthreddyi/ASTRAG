@@ -135,6 +135,14 @@ class DocumentVersion(Base):
             ondelete="CASCADE",
             name="fk_document_versions_document_corpus",
         ),
+        # Same trick as documents above: lets chunks reference the
+        # (version, document, corpus) triple as a unit instead of copying it.
+        UniqueConstraint(
+            "id",
+            "document_id",
+            "corpus_id",
+            name="uq_document_versions_id_document_id_corpus_id",
+        ),
         # Invariant 1: exact-byte idempotency within a corpus. The same bytes in
         # a different corpus are a distinct logical document by design.
         UniqueConstraint(
