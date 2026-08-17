@@ -13,14 +13,16 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Computed,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from astrag.models.base import Base
@@ -60,6 +62,14 @@ class Chunk(Base):
     # distinct chunk occurrences (§10).
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The lexical representation (§15), generated rather than written: a column
+    # computed by the database cannot drift from the text it derives from, so
+    # publication never has to check the correspondence by hand.
+    lexical: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', contextualized_text)", persisted=True),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = _timestamp()
 
     __table_args__ = (
@@ -75,6 +85,7 @@ class Chunk(Base):
             ondelete="CASCADE",
             name="fk_chunks_version_document_corpus",
         ),
+        Index("ix_chunks_lexical", "lexical", postgresql_using="gin"),
         UniqueConstraint(
             "document_version_id",
             "processing_generation_id",

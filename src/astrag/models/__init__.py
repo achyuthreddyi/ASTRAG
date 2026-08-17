@@ -10,6 +10,7 @@ from astrag.models.lifecycle import (
     SearchRepresentationGeneration,
     VersionStatus,
 )
+from astrag.models.representation import ChunkRepresentation
 from astrag.models.temporal import (
     TemporalCertainty,
     TemporalMention,
@@ -21,6 +22,7 @@ __all__ = [
     "ActiveGenerationPointer",
     "Base",
     "Chunk",
+    "ChunkRepresentation",
     "Corpus",
     "Document",
     "DocumentVersion",
