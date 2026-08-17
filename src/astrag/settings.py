@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # Cheap synchronous upload validation (§18): reject before hashing.
     max_upload_bytes: int = 10 * 1024 * 1024
 
+    # Worker. Retry counts and delays are implementation configuration (§21);
+    # a job whose heartbeat is older than stale_job_seconds is reclaimed (§22).
+    poll_interval_seconds: float = 1.0
+    max_attempts: int = 3
+    retry_backoff_seconds: int = 30
+    stale_job_seconds: int = 300
+
     # "fake" is deterministic and offline: tests and evaluation runs use it.
     embedding_provider: Literal["openai", "fake"] = "fake"
     embedding_model: str = "text-embedding-3-small"
