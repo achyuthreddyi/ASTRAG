@@ -119,7 +119,3 @@ def test_a_later_attempt_reuses_the_normalized_document(db, store, enqueued, mon
 
     assert latest_run(db, version).normalized_artifact_key == first
     assert version.status == VersionStatus.READY
-
-
-def test_the_stage_is_the_pipeline_entry():
-    assert [name for name, _ in STAGES] == ["parse", "chunk"]

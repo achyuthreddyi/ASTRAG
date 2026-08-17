@@ -1,0 +1,32 @@
+[
+  {
+    "block_id": "b0001",
+    "start_offset": 3,
+    "end_offset": 18,
+    "text": "15 March 44 BCE",
+    "origin": "CONTENT_MENTION",
+    "precision": "DAY",
+    "certainty": "EXACT",
+    "start_year": -44,
+    "start_month": 3,
+    "start_day": 15,
+    "end_year": null,
+    "end_month": null,
+    "end_day": null
+  },
+  {
+    "block_id": "b0003",
+    "start_offset": 72,
+    "end_offset": 78,
+    "text": "27 BCE",
+    "origin": "CONTENT_MENTION",
+    "precision": "YEAR",
+    "certainty": "EXACT",
+    "start_year": -27,
+    "start_month": null,
+    "start_day": null,
+    "end_year": null,
+    "end_month": null,
+    "end_day": null
+  }
+]

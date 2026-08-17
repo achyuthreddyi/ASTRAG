@@ -4,14 +4,19 @@ Each stage reads what it needs from durable state and writes its result there,
 so resuming mid-pipeline needs nothing but the row. Rungs 7-10 append here.
 """
 
+import logging
+
 from sqlalchemy import delete, select
 
 from astrag.ingest.chunker import chunk_document
 from astrag.ingest.executor import Stage, StageContext, StageError
 from astrag.ingest.normalized import NormalizedDocument
 from astrag.ingest.parsers import ParseError, parse
-from astrag.models import Chunk, IngestionRun
+from astrag.ingest.temporal import Mention, extract
+from astrag.models import Chunk, IngestionRun, TemporalMention
 from astrag.settings import get_settings
+
+log = logging.getLogger(__name__)
 
 
 def parse_stage(ctx: StageContext) -> None:
@@ -83,5 +88,71 @@ def chunk_stage(ctx: StageContext) -> None:
     )
 
 
-# The pipeline. Rungs 8-10 extend this list.
-STAGES: list[Stage] = [("parse", parse_stage), ("chunk", chunk_stage)]
+def temporal_stage(ctx: StageContext) -> None:
+    """Extract temporal mentions and attach each to the chunk containing it.
+
+    Zero mentions is success (§13). An extractor *failure* is not: the version
+    stays publishable with temporal marked degraded, because semantic and
+    lexical evidence are unaffected and losing the document entirely would be
+    the worse answer.
+    """
+    document = NormalizedDocument.model_validate_json(
+        ctx.store.get(ctx.run.normalized_artifact_key)
+    )
+    chunks = list(
+        ctx.db.scalars(
+            select(Chunk).where(
+                Chunk.document_version_id == ctx.version.id,
+                Chunk.processing_generation_id == ctx.run.processing_generation_id,
+            )
+        )
+    )
+    try:
+        mentions = extract(document)
+    except Exception:  # noqa: BLE001 — §13: degrade the capability, keep the evidence
+        log.exception("temporal extraction failed for version %s", ctx.version.id)
+        ctx.version.degraded_capabilities = {
+            **ctx.version.degraded_capabilities,
+            "temporal": "degraded",
+        }
+        return
+
+    # Same rebuild-don't-append rule as chunking; the chunk cascade covers the
+    # rows of any chunk this attempt replaced.
+    ctx.db.execute(
+        delete(TemporalMention).where(
+            TemporalMention.chunk_id.in_([chunk.id for chunk in chunks])
+        )
+    )
+    ctx.db.add_all(
+        TemporalMention(chunk_id=chunk.id, **vars(mention))
+        for chunk, mention in _associate(chunks, mentions)
+    )
+
+
+def _associate(
+    chunks: list[Chunk], mentions: list[Mention]
+) -> list[tuple[Chunk, Mention]]:
+    """Pair each mention with every chunk whose source span contains it (§12).
+
+    A mention inside an overlap belongs to both chunks, which is true: the
+    wording really is in both. One cut across a mention by a forced split drops
+    it from that chunk rather than storing half a date.
+    """
+    return [
+        (chunk, mention)
+        for chunk in chunks
+        for span in chunk.source_spans
+        for mention in mentions
+        if span["block_id"] == mention.block_id
+        and span["start"] <= mention.start_offset
+        and mention.end_offset <= span["end"]
+    ]
+
+
+# The pipeline. Rungs 9-10 extend this list.
+STAGES: list[Stage] = [
+    ("parse", parse_stage),
+    ("chunk", chunk_stage),
+    ("temporal", temporal_stage),
+]
